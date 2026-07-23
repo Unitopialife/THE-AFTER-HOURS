@@ -1,0 +1,7 @@
+project_id = "the-after-hours-pos"
+
+[functions.create-employee]
+verify_jwt = true
+
+[functions.update-employee]
+verify_jwt = true
