@@ -492,6 +492,7 @@ declare
   actor public.profiles;
   target_order public.orders;
   item jsonb;
+  usage jsonb;
   recipe_row record;
   quantity numeric(14,3);
 begin
