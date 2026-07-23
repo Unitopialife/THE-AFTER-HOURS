@@ -329,7 +329,7 @@ as $$
 declare
   actor public.profiles;
   item jsonb;
-  usage jsonb;
+  usage_row record;
   stock_usage jsonb;
   normalized_items jsonb := '[]'::jsonb;
   menu_row public.menus;
@@ -440,11 +440,11 @@ begin
   returning * into created_order;
 
   for item in select * from jsonb_array_elements(normalized_items) loop
-    for usage in select * from jsonb_array_elements(item->'stock_usage') loop
-      quantity := (usage->>'quantity')::numeric;
-      update public.ingredients set stock=stock-quantity where id=(usage->>'ingredient_id')::uuid;
+    for usage_row in select value from jsonb_array_elements(item->'stock_usage') as usage_items(value) loop
+      quantity := (usage_row.value->>'quantity')::numeric;
+      update public.ingredients set stock=stock-quantity where id=(usage_row.value->>'ingredient_id')::uuid;
       insert into public.stock_movements(ingredient_id,ingredient_name,quantity,reason,order_id,employee_id,employee_name)
-      values((usage->>'ingredient_id')::uuid,usage->>'name',-quantity,'Verkauf '||order_no,created_order.id,actor.id,actor.full_name);
+      values((usage_row.value->>'ingredient_id')::uuid,usage_row.value->>'name',-quantity,'Verkauf '||order_no,created_order.id,actor.id,actor.full_name);
     end loop;
   end loop;
 
@@ -491,6 +491,7 @@ declare
   actor public.profiles;
   target_order public.orders;
   item jsonb;
+  usage_row record;
   recipe_row record;
   quantity numeric(14,3);
 begin
@@ -508,11 +509,11 @@ begin
 
   for item in select * from jsonb_array_elements(target_order.items) loop
     if jsonb_typeof(item->'stock_usage') = 'array' then
-      for usage in select * from jsonb_array_elements(item->'stock_usage') loop
-        quantity := (usage->>'quantity')::numeric;
-        update public.ingredients set stock=stock+quantity where id=(usage->>'ingredient_id')::uuid;
+      for usage_row in select value from jsonb_array_elements(item->'stock_usage') as usage_items(value) loop
+        quantity := (usage_row.value->>'quantity')::numeric;
+        update public.ingredients set stock=stock+quantity where id=(usage_row.value->>'ingredient_id')::uuid;
         insert into public.stock_movements(ingredient_id,ingredient_name,quantity,reason,order_id,employee_id,employee_name)
-        values((usage->>'ingredient_id')::uuid,usage->>'name',quantity,case when p_new_status='refunded' then 'Rückerstattung ' else 'Stornierung ' end||target_order.order_number,target_order.id,actor.id,actor.full_name);
+        values((usage_row.value->>'ingredient_id')::uuid,usage_row.value->>'name',quantity,case when p_new_status='refunded' then 'Rückerstattung ' else 'Stornierung ' end||target_order.order_number,target_order.id,actor.id,actor.full_name);
       end loop;
     elsif item->>'type'='ingredient' then
       quantity := (item->>'quantity')::numeric;

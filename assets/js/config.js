@@ -4,9 +4,9 @@
  * NIEMALS den service_role key hier eintragen.
  */
 window.AFTER_HOURS_CONFIG = {
-  supabaseUrl: '',
-  supabasePublishableKey: '',
-  demoMode: true,
+  supabaseUrl: 'https://hhgavhngnnynjecftpvd.supabase.co',
+  supabasePublishableKey: 'sb_publishable_9fWuxQL8tN7YeyJD_qQ0UQ_1CHXl-cV',
+  demoMode: false,
   currency: 'USD',
   locale: 'de-DE'
 };
