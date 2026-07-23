@@ -217,6 +217,9 @@ $$;
 revoke all on function private.current_profile() from public;
 revoke all on function private.can_use_app() from public;
 revoke all on function private.has_permission(text) from public;
+grant usage on schema private to authenticated;
+grant execute on function private.can_use_app() to authenticated;
+grant execute on function private.has_permission(text) to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- Updated-at and audit triggers
@@ -551,8 +554,36 @@ alter table public.stock_movements enable row level security;
 alter table public.notices enable row level security;
 alter table public.audit_logs enable row level security;
 
+drop policy if exists profiles_select on public.profiles;
+drop policy if exists profiles_change_password on public.profiles;
+drop policy if exists settings_select on public.settings;
+drop policy if exists settings_insert on public.settings;
+drop policy if exists settings_update on public.settings;
+drop policy if exists ingredients_select on public.ingredients;
+drop policy if exists ingredients_insert on public.ingredients;
+drop policy if exists ingredients_update on public.ingredients;
+drop policy if exists ingredients_delete on public.ingredients;
+drop policy if exists menus_select on public.menus;
+drop policy if exists menus_insert on public.menus;
+drop policy if exists menus_update on public.menus;
+drop policy if exists menus_delete on public.menus;
+drop policy if exists recipes_select on public.menu_ingredients;
+drop policy if exists recipes_insert on public.menu_ingredients;
+drop policy if exists recipes_update on public.menu_ingredients;
+drop policy if exists recipes_delete on public.menu_ingredients;
+drop policy if exists organizations_select on public.organizations;
+drop policy if exists organizations_insert on public.organizations;
+drop policy if exists organizations_update on public.organizations;
+drop policy if exists organizations_delete on public.organizations;
+drop policy if exists orders_select on public.orders;
+drop policy if exists stock_movements_select on public.stock_movements;
+drop policy if exists notices_select on public.notices;
+drop policy if exists notices_insert on public.notices;
+drop policy if exists notices_update on public.notices;
+drop policy if exists notices_delete on public.notices;
+drop policy if exists audit_select on public.audit_logs;
+
 create policy profiles_select on public.profiles for select to authenticated using (id=(select auth.uid()) or (select private.can_use_app()));
-create policy profiles_change_password on public.profiles for update to authenticated using (id=(select auth.uid())) with check (id=(select auth.uid()));
 
 create policy settings_select on public.settings for select to authenticated using ((select private.can_use_app()));
 create policy settings_insert on public.settings for insert to authenticated with check ((select private.has_permission('settings.manage')));
@@ -598,7 +629,7 @@ grant usage on schema public to authenticated;
 grant select on public.profiles, public.settings, public.ingredients, public.menus, public.menu_ingredients, public.organizations, public.orders, public.stock_movements, public.notices, public.audit_logs to authenticated;
 grant insert, delete on public.ingredients, public.menus, public.menu_ingredients, public.organizations, public.notices to authenticated;
 grant insert, update on public.settings to authenticated;
-grant update (must_change_password) on public.profiles to authenticated;
+revoke update (must_change_password) on public.profiles from authenticated;
 grant update (name,category,purchase_price,sale_price,tax_rate,organization_discount,min_stock,unit,consumable,producible,active,updated_at) on public.ingredients to authenticated;
 grant update on public.menus, public.menu_ingredients, public.organizations, public.notices to authenticated;
 
@@ -608,6 +639,11 @@ grant update on public.menus, public.menu_ingredients, public.organizations, pub
 insert into storage.buckets(id,name,public,file_size_limit,allowed_mime_types)
 values('product-images','product-images',true,5242880,array['image/png','image/jpeg','image/webp'])
 on conflict (id) do update set public=excluded.public,file_size_limit=excluded.file_size_limit,allowed_mime_types=excluded.allowed_mime_types;
+
+drop policy if exists product_images_public_read on storage.objects;
+drop policy if exists product_images_insert on storage.objects;
+drop policy if exists product_images_update on storage.objects;
+drop policy if exists product_images_delete on storage.objects;
 
 create policy product_images_public_read on storage.objects for select to public using (bucket_id='product-images');
 create policy product_images_insert on storage.objects for insert to authenticated with check (bucket_id='product-images' and (select private.has_permission('menus.manage')));

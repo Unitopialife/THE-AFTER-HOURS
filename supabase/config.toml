@@ -5,3 +5,6 @@ verify_jwt = true
 
 [functions.update-employee]
 verify_jwt = true
+
+[functions.complete-first-login]
+verify_jwt = true
