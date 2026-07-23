@@ -533,12 +533,47 @@ begin
 end;
 $$;
 
+create or replace function public.complete_first_login()
+returns public.profiles
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  actor public.profiles;
+begin
+  select * into actor from public.profiles where id = (select auth.uid()) for update;
+  if not found then raise exception 'Mitarbeiterkonto nicht gefunden.'; end if;
+  if actor.active = false then raise exception 'Dieses Mitarbeiterkonto ist deaktiviert.'; end if;
+
+  update public.profiles
+  set must_change_password = false
+  where id = actor.id
+  returning * into actor;
+
+  insert into public.audit_logs(employee_id, employee_name, action, entity_type, entity_id, entity_name, details)
+  values(
+    actor.id,
+    actor.full_name,
+    'employee.first_password_set',
+    'profile',
+    actor.id::text,
+    actor.full_name,
+    'Startpasswort wurde ersetzt.'
+  );
+
+  return actor;
+end;
+$$;
+
 revoke all on function public.create_order(jsonb) from public, anon;
 revoke all on function public.change_stock(uuid,numeric,text) from public, anon;
 revoke all on function public.cancel_order(uuid,text,text) from public, anon;
+revoke all on function public.complete_first_login() from public, anon;
 grant execute on function public.create_order(jsonb) to authenticated;
 grant execute on function public.change_stock(uuid,numeric,text) to authenticated;
 grant execute on function public.cancel_order(uuid,text,text) to authenticated;
+grant execute on function public.complete_first_login() to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- RLS policies

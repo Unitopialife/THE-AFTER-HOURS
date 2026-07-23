@@ -254,9 +254,10 @@
     }
     async updatePassword(password) {
       const supabaseClient = requireSupabaseClient();
-      const { data, error } = await supabaseClient.functions.invoke('complete-first-login', { body:{ password } });
-      if (error) throw new Error(`${error.message || 'Edge Function konnte nicht erreicht werden.'} Bitte die Supabase Edge Function complete-first-login deployen.`);
-      if (data?.error) throw new Error(data.error);
+      const { error: passwordError } = await supabaseClient.auth.updateUser({ password });
+      if (passwordError) throw passwordError;
+      const { error: profileError } = await supabaseClient.rpc('complete_first_login');
+      if (profileError) throw profileError;
     }
     async loadAll() {
       const supabaseClient = requireSupabaseClient();
