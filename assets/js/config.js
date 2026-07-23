@@ -6,7 +6,7 @@
 window.AFTER_HOURS_CONFIG = {
   supabaseUrl: 'https://fvtpnmjepvqnnssftyqn.supabase.co',
   supabasePublishableKey: 'sb_publishable_tcaYdJe4Ez9cnarclK4_Kw_G-f0nLHa',
-  demoMode: false,
+  demoMode: true,
   currency: 'USD',
   locale: 'de-DE'
 };
