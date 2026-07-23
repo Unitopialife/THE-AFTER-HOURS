@@ -3,6 +3,7 @@ THE AFTER HOURS – SCHNELLSTART
 
 DEMO TESTEN
 -----------
+0. Falls ein echtes Supabase-Backend konfiguriert ist, in assets/js/config.js vorübergehend demoMode auf true setzen.
 1. Diesen Ordner mit einem lokalen Webserver öffnen:
    python -m http.server 8080
 2. Im Browser öffnen: http://localhost:8080
@@ -15,7 +16,7 @@ ECHTES SUPABASE-BACKEND
 2. Öffentliche Registrierung in Supabase deaktivieren.
 3. supabase/schema.sql im Supabase SQL Editor ausführen.
 4. Erstes Inhaberkonto gemäß README anlegen.
-5. Die Edge Functions create-employee und update-employee bereitstellen.
+5. Die Edge Functions complete-first-login, create-employee und update-employee bereitstellen.
 6. Projekt-URL und Publishable Key in assets/js/config.js eintragen.
 7. demoMode auf false setzen.
 8. Repository über GitHub Pages veröffentlichen.

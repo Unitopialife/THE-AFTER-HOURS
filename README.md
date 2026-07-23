@@ -22,7 +22,7 @@ Modernes, responsives Kassensystem für GitHub Pages mit Supabase als sicherem B
 
 ## Demo lokal starten
 
-Das Projekt startet standardmäßig im Demo-Modus.
+Wenn du ohne Supabase testen möchtest, setze in `assets/js/config.js` vorübergehend `demoMode: true` oder lasse `supabaseUrl` und `supabasePublishableKey` leer.
 
 1. Ordner öffnen.
 2. Einen lokalen Webserver starten:
@@ -92,6 +92,7 @@ Mit installierter Supabase CLI:
 ```bash
 supabase login
 supabase link --project-ref DEIN-PROJEKT-REF
+supabase functions deploy complete-first-login
 supabase functions deploy create-employee
 supabase functions deploy update-employee
 ```
@@ -134,6 +135,7 @@ supabase/
   schema.sql
   config.toml
   functions/
+    complete-first-login/index.ts
     create-employee/index.ts
     update-employee/index.ts
 ```
@@ -148,6 +150,7 @@ supabase/
 - Jede Bestellung speichert einen Snapshot der tatsächlich verbrauchten Zutaten.
 - Stornierungen verwenden diesen Snapshot und bleiben daher auch nach späteren Rezeptänderungen korrekt.
 - Mitarbeiterkonten werden ausschließlich über geschützte Edge Functions erstellt oder geändert.
+- Der erste Passwortwechsel läuft über eine geschützte Edge Function; `must_change_password` ist nicht direkt per Browser schreibbar.
 - Secret-/Service-Role-Schlüssel dürfen niemals im Frontend oder Repository veröffentlicht werden.
 
 ## Vor echtem Kassenbetrieb

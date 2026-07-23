@@ -157,6 +157,7 @@ create index if not exists idx_menu_ingredients_ingredient on public.menu_ingred
 insert into public.settings(key, value) values
   ('company_name', '"THE AFTER HOURS"'::jsonb),
   ('currency', '"USD"'::jsonb),
+  ('company_logo', '""'::jsonb),
   ('default_tax_rate', '10'::jsonb),
   ('address', '""'::jsonb),
   ('contact_email', '""'::jsonb),
@@ -366,8 +367,8 @@ begin
     if quantity <= 0 then raise exception 'Ungültige Bestellmenge.'; end if;
 
     if item->>'type' = 'menu' then
-      select * into menu_row from public.menus where id = (item->>'reference_id')::uuid and active = true;
-      if not found then raise exception 'Menü nicht verfügbar.'; end if;
+      select * into menu_row from public.menus where id = (item->>'reference_id')::uuid and active = true and producible = true;
+      if not found then raise exception 'Menü nicht verfügbar oder nicht herstellbar.'; end if;
 
       for recipe_row in
         select mi.ingredient_id, mi.quantity as recipe_quantity, i.name, i.stock
@@ -392,8 +393,8 @@ begin
         'unit_price',menu_row.sale_price,'tax_rate',menu_row.tax_rate,'stock_usage',stock_usage
       ));
     elsif item->>'type' = 'ingredient' then
-      select * into ingredient_row from public.ingredients where id = (item->>'reference_id')::uuid and active = true for update;
-      if not found then raise exception 'Zutat nicht verfügbar.'; end if;
+      select * into ingredient_row from public.ingredients where id = (item->>'reference_id')::uuid and active = true and consumable = true and sale_price > 0 for update;
+      if not found then raise exception 'Zutat nicht verfügbar oder nicht verkäuflich.'; end if;
       if ingredient_row.stock < quantity then raise exception 'Nicht genügend Lagerbestand für %.', ingredient_row.name; end if;
       line_total := round(ingredient_row.sale_price * quantity, 2);
       subtotal_value := subtotal_value + line_total;
@@ -551,7 +552,7 @@ alter table public.notices enable row level security;
 alter table public.audit_logs enable row level security;
 
 create policy profiles_select on public.profiles for select to authenticated using (id=(select auth.uid()) or (select private.can_use_app()));
-create policy profiles_change_password on public.profiles for update to authenticated using (id=(select auth.uid())) with check (id=(select auth.uid()));
+drop policy if exists profiles_change_password on public.profiles;
 
 create policy settings_select on public.settings for select to authenticated using ((select private.can_use_app()));
 create policy settings_insert on public.settings for insert to authenticated with check ((select private.has_permission('settings.manage')));
@@ -597,7 +598,7 @@ grant usage on schema public to authenticated;
 grant select on public.profiles, public.settings, public.ingredients, public.menus, public.menu_ingredients, public.organizations, public.orders, public.stock_movements, public.notices, public.audit_logs to authenticated;
 grant insert, delete on public.ingredients, public.menus, public.menu_ingredients, public.organizations, public.notices to authenticated;
 grant insert, update on public.settings to authenticated;
-grant update (must_change_password) on public.profiles to authenticated;
+revoke update (must_change_password) on public.profiles from authenticated;
 grant update (name,category,purchase_price,sale_price,tax_rate,organization_discount,min_stock,unit,consumable,producible,active,updated_at) on public.ingredients to authenticated;
 grant update on public.menus, public.menu_ingredients, public.organizations, public.notices to authenticated;
 

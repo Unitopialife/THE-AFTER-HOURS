@@ -136,6 +136,7 @@
     }
     async signOut() { this.session = false; localStorage.removeItem('after-hours-demo-session'); }
     async getSession() { return this.session ? { user: this.data.currentUser } : null; }
+    async getCurrentUser() { return clone(this.data.currentUser); }
     async updatePassword() { this.data.currentUser.must_change_password = false; this.save(); }
     async loadAll() { return clone(this.data); }
     async saveEntity(entity, record) {
@@ -232,11 +233,17 @@
     }
     async signOut() { const { error } = await supabaseClient.auth.signOut(); if (error) throw error; }
     async getSession() { const { data } = await supabaseClient.auth.getSession(); return data.session; }
-    async updatePassword(password) {
-      const { error } = await supabaseClient.auth.updateUser({ password });
+    async getCurrentUser() {
+      const { data: userData, error: userError } = await supabaseClient.auth.getUser();
+      if (userError || !userData.user) throw userError || new Error('Nicht angemeldet.');
+      const { data, error } = await supabaseClient.from('profiles').select('*').eq('id', userData.user.id).single();
       if (error) throw error;
-      const { error: profileError } = await supabaseClient.from('profiles').update({ must_change_password:false }).eq('id', (await supabaseClient.auth.getUser()).data.user.id);
-      if (profileError) throw profileError;
+      return data;
+    }
+    async updatePassword(password) {
+      const { data, error } = await supabaseClient.functions.invoke('complete-first-login', { body:{ password } });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
     }
     async loadAll() {
       const tables = ['profiles','settings','ingredients','menus','organizations','orders','notices','audit_logs','stock_movements'];
@@ -368,21 +375,31 @@
   function showLogin() {
     $('#loginView').classList.remove('hidden');
     $('#appView').classList.add('hidden');
+    $('#passwordView').classList.add('hidden');
     if (DEMO_MODE) $('#loginHint').innerHTML = 'Demo-Zugang: <strong>inhaber</strong> / <strong>afterhours</strong><br>Keine öffentliche Registrierung.';
   }
 
   async function enterApp() {
-    state.data = await repository.loadAll();
-    if (!state.data.currentUser || state.data.currentUser.active === false) {
+    const currentUser = await repository.getCurrentUser();
+    if (!currentUser || currentUser.active === false) {
       await repository.signOut();
       throw new Error('Dieses Mitarbeiterkonto ist deaktiviert.');
     }
+    state.data = {
+      currentUser, settings: {}, ingredients: [], menus: [], organizations: [],
+      employees: [], orders: [], notices: [], audit: [], stockMovements: []
+    };
     $('#loginView').classList.add('hidden');
     $('#appView').classList.remove('hidden');
     updateEmployeeUi();
     applyPermissionVisibility();
     navigate('dashboard');
-    if (state.data.currentUser?.must_change_password) $('#passwordView').classList.remove('hidden');
+    if (currentUser.must_change_password) {
+      $('#passwordView').classList.remove('hidden');
+      return;
+    }
+    await reloadData();
+    navigate('dashboard');
   }
 
   function updateEmployeeUi() {
@@ -390,6 +407,12 @@
     $('#employeeName').textContent = user.full_name || user.username;
     $('#employeeRole').textContent = ROLE_LABELS[user.role] || user.role;
     $('#employeeAvatar').textContent = initials(user.full_name || user.username);
+    const logo = state.data.settings?.company_logo || '';
+    $$('.brand-mark').forEach(mark => {
+      mark.classList.toggle('has-logo', Boolean(logo));
+      mark.style.backgroundImage = logo ? `url("${logo.replace(/"/g, '%22')}")` : '';
+      mark.textContent = logo ? '' : 'AH';
+    });
   }
 
   function applyPermissionVisibility() {
@@ -459,7 +482,7 @@
 
     const recent = state.data.orders.slice(0,5);
     $('#recentOrders').innerHTML = recent.length ? orderTable(recent, true) : emptyState('Noch keine Bestellungen','Sobald eine Bestellung aufgenommen wurde, erscheint sie hier.');
-    const low = state.data.ingredients.filter(i => i.active && Number(i.stock) <= Number(i.min_stock)).sort((a,b) => a.stock-a.stock).slice(0,5);
+    const low = state.data.ingredients.filter(i => i.active && Number(i.stock) <= Number(i.min_stock)).sort((a,b) => Number(a.stock)-Number(b.stock)).slice(0,5);
     $('#lowStockCount').textContent = `${low.length} Artikel`;
     $('#lowStockList').innerHTML = low.length ? low.map(item => {
       const pct = Math.min(100, Math.max(4, Number(item.stock) / Math.max(Number(item.min_stock),1) * 100));
@@ -588,11 +611,13 @@
     content.innerHTML = `<section class="page-stack"><form id="settingsForm" class="panel"><div class="panel-heading"><div><p class="eyebrow">UNTERNEHMEN</p><h3>Allgemeine Einstellungen</h3></div></div><div class="form-grid">
       <label class="field"><span>Firmenname</span><input name="company_name" value="${escapeHtml(s.company_name||'THE AFTER HOURS')}"></label>
       <label class="field"><span>Währung</span><select name="currency"><option value="USD" ${s.currency==='USD'?'selected':''}>USD ($)</option><option value="EUR" ${s.currency==='EUR'?'selected':''}>EUR (€)</option></select></label>
+      <label class="field span-2"><span>Firmenlogo-URL</span><input name="company_logo" value="${escapeHtml(s.company_logo||'')}" placeholder="https://..."></label>
       <label class="field span-2"><span>Adresse</span><input name="address" value="${escapeHtml(s.address||'')}"></label>
       <label class="field"><span>Kontakt-E-Mail</span><input type="email" name="contact_email" value="${escapeHtml(s.contact_email||'')}"></label>
       <label class="field"><span>Telefon</span><input name="phone" value="${escapeHtml(s.phone||'')}"></label>
       <label class="field"><span>Standardsteuersatz (%)</span><input type="number" min="0" max="100" step="0.01" name="default_tax_rate" value="${Number(s.default_tax_rate??10)}"></label>
       <label class="field"><span>Bestellnummer-Präfix</span><input name="order_prefix" value="${escapeHtml(s.order_prefix||'AH')}"></label>
+      <div class="field span-2"><span>Zahlungsarten</span><label class="checkbox-field"><input type="checkbox" name="payment_cash" ${(s.payment_methods||['cash','card']).includes('cash')?'checked':''}> Barzahlung</label><label class="checkbox-field"><input type="checkbox" name="payment_card" ${(s.payment_methods||['cash','card']).includes('card')?'checked':''}> Kartenzahlung</label></div>
       <label class="field span-2"><span>Verkaufsorte (mit Komma trennen)</span><input name="sales_locations" value="${escapeHtml((s.sales_locations||[]).join(', '))}"></label>
       <label class="field span-2"><span>Kategorien (mit Komma trennen)</span><input name="categories" value="${escapeHtml((s.categories||[]).join(', '))}"></label>
       <label class="field span-2"><span>Trinkgeldregeln</span><textarea name="tip_rules">${escapeHtml(s.tip_rules||'')}</textarea></label>
@@ -601,6 +626,10 @@
       event.preventDefault(); const fd = new FormData(event.currentTarget);
       const settings = Object.fromEntries(fd.entries());
       settings.default_tax_rate = Number(settings.default_tax_rate);
+      settings.payment_methods = [fd.has('payment_cash') ? 'cash' : null, fd.has('payment_card') ? 'card' : null].filter(Boolean);
+      if (!settings.payment_methods.length) settings.payment_methods = ['cash', 'card'];
+      delete settings.payment_cash;
+      delete settings.payment_card;
       settings.sales_locations = settings.sales_locations.split(',').map(v=>v.trim()).filter(Boolean);
       settings.categories = settings.categories.split(',').map(v=>v.trim()).filter(Boolean);
       await withLoading(event.submitter, async()=>{ await repository.updateSettings(settings); await reloadData(); toast('Einstellungen wurden gespeichert.','success'); });
@@ -647,11 +676,22 @@
   }
   function closeModal() { $('#modalHost').innerHTML=''; }
 
+  function enabledPaymentMethods() {
+    const configured = Array.isArray(state.data.settings?.payment_methods) ? state.data.settings.payment_methods : ['cash', 'card'];
+    const methods = configured.filter(method => ['cash', 'card'].includes(method));
+    return methods.length ? methods : ['cash', 'card'];
+  }
+
+  function paymentMethodLabel(method) {
+    return method === 'cash' ? 'Barzahlung' : 'Kartenzahlung';
+  }
+
   function openOrderModal() {
     if (!hasPermission(PERMISSION.ORDERS_CREATE)) return toast('Keine Berechtigung für neue Bestellungen.','error');
     state.cart = [];
     state.currentOrderOrganization = null;
-    state.currentPaymentMethod = 'cash';
+    const paymentMethods = enabledPaymentMethods();
+    state.currentPaymentMethod = paymentMethods[0];
     const products = [
       ...state.data.menus.filter(m=>m.active).map(m=>({type:'menu',reference_id:m.id,name:m.name,category:m.category,unit_price:Number(m.sale_price),tax_rate:Number(m.tax_rate),available:calculateMenuAvailability(m)})),
       ...state.data.ingredients.filter(i=>i.active && Number(i.sale_price)>0).map(i=>({type:'ingredient',reference_id:i.id,name:i.name,category:i.category,unit_price:Number(i.sale_price),tax_rate:Number(i.tax_rate||state.data.settings.default_tax_rate||10),available:Number(i.stock)}))
@@ -659,7 +699,7 @@
     const html = `<div class="dialog-heading"><div><p class="eyebrow">KASSE</p><h2>Neue Bestellung</h2></div><button class="icon-button" data-close-modal>×</button></div>
       <div class="form-grid" style="margin-bottom:20px"><label class="field"><span>Verkaufsort</span><select id="orderLocation">${(state.data.settings.sales_locations||['Hauptkasse']).map(v=>`<option>${escapeHtml(v)}</option>`).join('')}</select></label><label class="field"><span>Organisation / Rabatt</span><select id="orderOrganization"><option value="">Kein Organisationsrabatt</option>${state.data.organizations.filter(o=>o.active).map(o=>`<option value="${o.id}">${escapeHtml(o.name)} – ${o.discount_type==='percent'?`${o.discount_value} %`:fmtCurrency(o.discount_value)}</option>`).join('')}</select></label></div>
       <div class="order-layout"><div><div class="search-row" style="margin-bottom:12px"><input id="productSearch" placeholder="Produkt suchen"><select id="productCategory" class="filter-select"><option value="">Alle Kategorien</option>${[...new Set(products.map(p=>p.category))].map(c=>`<option>${escapeHtml(c)}</option>`).join('')}</select></div><div id="orderProducts" class="order-products"></div></div><aside class="cart"><div class="panel-heading"><div><p class="eyebrow">WARENKORB</p><h3>Bestellpositionen</h3></div><span id="cartCount" class="status-pill status-pill--neutral">0 Artikel</span></div><div id="cartItems" class="cart-items"></div><div class="cart-totals"><div><span>Zwischensumme</span><strong id="cartSubtotal">${fmtCurrency(0)}</strong></div><div><span>Rabatt</span><strong id="cartDiscount">− ${fmtCurrency(0)}</strong></div><div><span>Steuer enthalten</span><strong id="cartTax">${fmtCurrency(0)}</strong></div><div class="grand-total"><span>Gesamt</span><strong id="cartTotal">${fmtCurrency(0)}</strong></div></div></aside></div>
-      <div class="form-grid" style="margin-top:18px"><label class="field"><span>Zahlungsart</span><select id="paymentMethod"><option value="cash">Barzahlung</option><option value="card">Kartenzahlung</option></select></label><label class="field"><span>Trinkgeld</span><input id="orderTip" type="number" min="0" step="0.01" value="0"></label><label id="receivedField" class="field"><span>Erhaltener Geldbetrag</span><input id="receivedAmount" type="number" min="0" step="0.01" value="0"></label><label class="field"><span>Rückgeld</span><input id="changeAmount" value="${fmtCurrency(0)}" readonly></label></div>
+      <div class="form-grid" style="margin-top:18px"><label class="field"><span>Zahlungsart</span><select id="paymentMethod">${paymentMethods.map(method=>`<option value="${method}">${paymentMethodLabel(method)}</option>`).join('')}</select></label><label class="field"><span>Trinkgeld</span><input id="orderTip" type="number" min="0" step="0.01" value="0"></label><label id="receivedField" class="field ${state.currentPaymentMethod==='card'?'hidden':''}"><span>Erhaltener Geldbetrag</span><input id="receivedAmount" type="number" min="0" step="0.01" value="0"></label><label class="field"><span>Rückgeld</span><input id="changeAmount" value="${fmtCurrency(0)}" readonly></label></div>
       <div class="dialog-footer"><button class="button button--secondary" data-close-modal>Abbrechen</button><button id="completeOrder" class="button button--primary" disabled>Bestellung abschließen</button></div>`;
     openModal(html,{onOpen:()=>{
       const renderProducts = () => {
@@ -669,7 +709,11 @@
           const [type,id]=card.dataset.addProduct.split(':'); const p=products.find(x=>x.type===type&&x.reference_id===id);
           if(p.available<=0) return toast('Produkt ist nicht verfügbar.','error');
           const existing=state.cart.find(x=>x.type===type&&x.reference_id===id);
-          if(existing) existing.quantity++; else state.cart.push({...p,quantity:1}); renderCart();
+          if(existing) {
+            if (existing.quantity + 1 > existing.available) return toast('Die verfügbare Menge reicht nicht aus.','error');
+            existing.quantity++;
+          } else state.cart.push({...p,quantity:1});
+          renderCart();
         }));
       };
       $('#productSearch').addEventListener('input',renderProducts); $('#productCategory').addEventListener('change',renderProducts);
@@ -703,7 +747,7 @@
     if (!$('#cartItems')) return;
     $('#cartItems').innerHTML = state.cart.length ? state.cart.map((item,index)=>`<div class="cart-item"><div><strong>${escapeHtml(item.name)}</strong><small>${fmtCurrency(item.unit_price)} × ${item.quantity}</small></div><div class="qty-controls"><button data-cart-minus="${index}">−</button><span>${item.quantity}</span><button data-cart-plus="${index}">＋</button></div></div>`).join('') : emptyState('Warenkorb ist leer','Wähle links ein Produkt aus.');
     $$('[data-cart-minus]').forEach(btn=>btn.addEventListener('click',()=>{ const i=Number(btn.dataset.cartMinus); state.cart[i].quantity--; if(state.cart[i].quantity<=0)state.cart.splice(i,1); renderCart(); }));
-    $$('[data-cart-plus]').forEach(btn=>btn.addEventListener('click',()=>{ state.cart[Number(btn.dataset.cartPlus)].quantity++; renderCart(); }));
+    $$('[data-cart-plus]').forEach(btn=>btn.addEventListener('click',()=>{ const item=state.cart[Number(btn.dataset.cartPlus)]; if(item.quantity+1>item.available)return toast('Die verfügbare Menge reicht nicht aus.','error'); item.quantity++; renderCart(); }));
     const t=cartTotals();
     $('#cartCount').textContent=`${state.cart.reduce((s,i)=>s+i.quantity,0)} Artikel`;
     $('#cartSubtotal').textContent=fmtCurrency(t.subtotal); $('#cartDiscount').textContent=`− ${fmtCurrency(t.discount)}`; $('#cartTax').textContent=fmtCurrency(t.tax); $('#cartTotal').textContent=fmtCurrency(t.total); $('#changeAmount').value=fmtCurrency(t.change);
@@ -840,7 +884,7 @@
       event.preventDefault(); const p=$('#newPassword').value,c=$('#newPasswordConfirm').value;
       if(p!==c)return toast('Die Passwörter stimmen nicht überein.','error');
       if(p.length<10)return toast('Das Passwort muss mindestens 10 Zeichen enthalten.','error');
-      await withLoading(event.submitter,async()=>{await repository.updatePassword(p);$('#passwordView').classList.add('hidden');await reloadData();toast('Das neue Passwort wurde gespeichert.','success');});
+      await withLoading(event.submitter,async()=>{await repository.updatePassword(p);$('#passwordView').classList.add('hidden');await reloadData();renderPage();toast('Das neue Passwort wurde gespeichert.','success');});
     });
     $$('.nav-item[data-page]').forEach(btn=>btn.addEventListener('click',()=>navigate(btn.dataset.page)));
     $('#quickOrderButton').addEventListener('click',openOrderModal);
