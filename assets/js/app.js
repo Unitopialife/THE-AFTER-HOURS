@@ -166,6 +166,22 @@
       this.save();
       return clone(created);
     }
+    async deleteEntity(entity, id) {
+      const list = this.data[entity];
+      const index = list.findIndex(item => item.id === id);
+      if (index < 0) throw new Error('Datensatz nicht gefunden.');
+      const [deleted] = list.splice(index, 1);
+      if (entity === 'ingredients') {
+        this.data.menus.forEach(menu => {
+          menu.recipe = (menu.recipe || []).filter(recipe => recipe.ingredient_id !== id);
+        });
+      }
+      this.audit(`${entity}.deleted`, entity, deleted.name || deleted.full_name || '', 'Datensatz wurde gelöscht.');
+      this.save();
+    }
+    async deactivateEntity(entity, id) {
+      return this.saveEntity(entity, { id, active:false });
+    }
     async createOrder(payload) {
       const number = `${this.data.settings.order_prefix}-${this.data.settings.next_order_number++}`;
       const normalizedItems = payload.items.map(item => {
@@ -322,6 +338,21 @@
         }
       }
       return result.data;
+    }
+    async deleteEntity(entity, id) {
+      const supabaseClient = requireSupabaseClient();
+      const tableMap = { menus:'menus', ingredients:'ingredients' };
+      const table = tableMap[entity];
+      if (!table) throw new Error('Dieser Datensatz kann hier nicht gelöscht werden.');
+      if (entity === 'menus') {
+        const { error: recipeError } = await supabaseClient.from('menu_ingredients').delete().eq('menu_id', id);
+        if (recipeError) throw recipeError;
+      }
+      const { error } = await supabaseClient.from(table).delete().eq('id', id);
+      if (error) throw error;
+    }
+    async deactivateEntity(entity, id) {
+      return this.saveEntity(entity, { id, active:false });
     }
     async createOrder(payload) {
       const { data, error } = await supabaseClient.rpc('create_order', { p_payload:payload });
@@ -492,7 +523,7 @@
 
     const recent = state.data.orders.slice(0,5);
     $('#recentOrders').innerHTML = recent.length ? orderTable(recent, true) : emptyState('Noch keine Bestellungen','Sobald eine Bestellung aufgenommen wurde, erscheint sie hier.');
-    const low = state.data.ingredients.filter(i => i.active && Number(i.stock) <= Number(i.min_stock)).sort((a,b) => a.stock-a.stock).slice(0,5);
+    const low = state.data.ingredients.filter(i => i.active && Number(i.stock) <= Number(i.min_stock)).sort((a,b) => Number(a.stock)-Number(b.stock)).slice(0,5);
     $('#lowStockCount').textContent = `${low.length} Artikel`;
     $('#lowStockList').innerHTML = low.length ? low.map(item => {
       const pct = Math.min(100, Math.max(4, Number(item.stock) / Math.max(Number(item.min_stock),1) * 100));
@@ -521,7 +552,7 @@
       <section class="page-stack">
         <div class="page-toolbar">
           <div class="search-row"><input id="orderSearch" placeholder="Bestellnummer, Mitarbeiter oder Verkaufsort suchen"><select id="orderStatus" class="filter-select"><option value="">Alle Status</option><option value="open">Offen</option><option value="completed">Abgeschlossen</option><option value="cancelled">Storniert</option><option value="refunded">Zurückerstattet</option></select></div>
-          ${hasPermission(PERMISSION.ORDERS_CREATE) ? '<button id="newOrderButton" class="button button--primary">＋ Neue Bestellung</button>' : ''}
+          <div class="toolbar-actions"><button id="ordersPdfButton" class="button button--secondary">PDF herunterladen</button>${hasPermission(PERMISSION.ORDERS_CREATE) ? '<button id="newOrderButton" class="button button--primary">＋ Neue Bestellung</button>' : ''}</div>
         </div>
         <div class="data-panel"><div class="data-panel-header"><h3>Bestellverlauf</h3><span class="muted">${state.data.orders.length} Einträge</span></div><div id="ordersTable" class="table-wrap"></div></div>
       </section>`;
@@ -529,11 +560,13 @@
       const search = $('#orderSearch').value.toLowerCase();
       const status = $('#orderStatus').value;
       const filtered = state.data.orders.filter(o => (!status || o.status === status) && [o.order_number,o.employee_name,o.sales_location,o.organization_name].some(v => String(v||'').toLowerCase().includes(search)));
+      state.currentOrderExport = filtered;
       $('#ordersTable').innerHTML = filtered.length ? orderTable(filtered, false) : emptyState('Keine Bestellungen gefunden','Passe die Suche oder den Statusfilter an.');
       bindOrderActions();
     };
     $('#orderSearch').addEventListener('input', rerender);
     $('#orderStatus').addEventListener('change', rerender);
+    $('#ordersPdfButton').addEventListener('click', () => downloadOrdersPdf(state.currentOrderExport || []));
     $('#newOrderButton')?.addEventListener('click', openOrderModal);
     rerender();
   }
@@ -541,6 +574,79 @@
   function orderTable(orders, compact) {
     return `<table><thead><tr><th>Bestellung</th><th>Verkaufsort</th><th>Gesamt</th><th>Zahlung</th>${compact?'':'<th>Rabatt</th><th>Erhalten</th><th>Rückgeld</th><th>Trinkgeld</th><th>Mitarbeiter</th><th>Datum</th><th>Status</th><th></th>'}</tr></thead><tbody>${orders.map(o => `
       <tr><td><strong>${escapeHtml(o.order_number)}</strong>${o.organization_name?`<br><small class="muted">${escapeHtml(o.organization_name)}</small>`:''}</td><td>${escapeHtml(o.sales_location)}</td><td><strong>${fmtCurrency(o.total)}</strong></td><td>${o.payment_method==='cash'?'Bar':'Karte'}</td>${compact?'':`<td>${fmtCurrency(o.discount_amount)}</td><td>${fmtCurrency(o.received_amount)}</td><td>${fmtCurrency(o.change_amount)}</td><td>${fmtCurrency(o.tip)}</td><td>${escapeHtml(o.employee_name||'')}</td><td>${fmtDate(o.created_at)}</td><td>${statusPill(o.status)}</td><td><div class="table-actions"><button class="icon-button" data-view-order="${o.id}" title="Details">⌕</button>${['open','completed'].includes(o.status)&&hasPermission(PERMISSION.ORDERS_CANCEL)?`<button class="icon-button" data-cancel-order="${o.id}" title="Stornieren">×</button>`:''}</div></td>`}</tr>`).join('')}</tbody></table>`;
+  }
+
+  function statusLabel(status) {
+    return ({ open:'Offen', completed:'Abgeschlossen', cancelled:'Storniert', refunded:'Zurueckerstattet' })[status] || status;
+  }
+
+  function downloadOrdersPdf(orders) {
+    if (!orders.length) return toast('Es gibt keine Bestellungen für den PDF-Export.','error');
+    const revenue = orders.filter(o=>o.status==='completed').reduce((sum,o)=>sum+Number(o.total||0),0);
+    const tips = orders.filter(o=>o.status==='completed').reduce((sum,o)=>sum+Number(o.tip||0),0);
+    const lines = [
+      'THE AFTER HOURS - Bestellverlauf',
+      `Export: ${fmtDate(nowIso())}`,
+      `Eintraege: ${orders.length}`,
+      `Abgeschlossener Umsatz: ${fmtCurrency(revenue)} | Trinkgeld: ${fmtCurrency(tips)}`,
+      '',
+      'Nr. | Datum | Ort | Zahlung | Status | Gesamt | Trinkgeld | Mitarbeiter'
+    ];
+    orders.forEach(order => {
+      lines.push(`${order.order_number} | ${fmtDate(order.created_at)} | ${order.sales_location || '-'} | ${order.payment_method==='cash'?'Bar':'Karte'} | ${statusLabel(order.status)} | ${fmtCurrency(order.total)} | ${fmtCurrency(order.tip)} | ${order.employee_name || '-'}`);
+      if (order.organization_name) lines.push(`  Organisation/Rabatt: ${order.organization_name} / ${fmtCurrency(order.discount_amount)}`);
+    });
+    downloadBlob(simplePdfBlob(lines), `bestellverlauf-${todayKey()}.pdf`);
+  }
+
+  function simplePdfBlob(lines) {
+    const pageSize = 42;
+    const objects = [];
+    const addObject = body => { objects.push(body); return objects.length; };
+    const fontId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
+    const pageIds = [];
+    for (let start = 0; start < lines.length; start += pageSize) {
+      const pageLines = lines.slice(start, start + pageSize);
+      const stream = pageLines.map((line,index) => {
+        const size = start === 0 && index === 0 ? 15 : 9;
+        const y = 806 - index * 17;
+        return `BT /F1 ${size} Tf 38 ${y} Td (${escapePdfText(line)}) Tj ET`;
+      }).join('\n');
+      const contentId = addObject(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
+      pageIds.push(addObject(`<< /Type /Page /Parent {{PAGES_ID}} /MediaBox [0 0 595 842] /Resources << /Font << /F1 ${fontId} 0 R >> >> /Contents ${contentId} 0 R >>`));
+    }
+    const pagesId = addObject(`<< /Type /Pages /Kids [${pageIds.map(id=>`${id} 0 R`).join(' ')}] /Count ${pageIds.length} >>`);
+    const catalogId = addObject(`<< /Type /Catalog /Pages ${pagesId} 0 R >>`);
+    let pdf = '%PDF-1.4\n';
+    const offsets = [0];
+    objects.forEach((body,index) => {
+      offsets.push(pdf.length);
+      pdf += `${index + 1} 0 obj\n${body.replaceAll('{{PAGES_ID}}', String(pagesId))}\nendobj\n`;
+    });
+    const xref = pdf.length;
+    pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.slice(1).map(offset=>`${String(offset).padStart(10,'0')} 00000 n `).join('\n')}\n`;
+    pdf += `trailer\n<< /Size ${objects.length + 1} /Root ${catalogId} 0 R >>\nstartxref\n${xref}\n%%EOF`;
+    return new Blob([pdf], { type:'application/pdf' });
+  }
+
+  function escapePdfText(value) {
+    const text = String(value ?? '')
+      .replaceAll('€','EUR')
+      .replace(/[äÄ]/g,'ae').replace(/[öÖ]/g,'oe').replace(/[üÜ]/g,'ue').replace(/ß/g,'ss')
+      .normalize('NFKD').replace(/[\u0300-\u036f]/g,'')
+      .replace(/[^\x20-\x7E]/g,' ');
+    return text.replace(/[\\()]/g, '\\$&');
+  }
+
+  function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   function statusPill(status) {
