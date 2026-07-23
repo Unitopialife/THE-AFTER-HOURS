@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0a0b">
+  <meta name="description" content="THE AFTER HOURS – Gastronomie-Kassensystem">
+  <title>THE AFTER HOURS | Kassensystem</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/styles.css">
+</head>
+<body>
+  <div id="toastHost" class="toast-host" aria-live="polite"></div>
+
+  <section id="loginView" class="login-shell">
+    <div class="login-art" aria-hidden="true">
+      <div class="brand-lockup brand-lockup--large">
+        <span class="brand-mark">AH</span>
+        <div>
+          <strong>THE AFTER HOURS</strong>
+          <small>Restaurant · Bar · Nightlife</small>
+        </div>
+      </div>
+      <div class="login-copy">
+        <p class="eyebrow">GASTRONOMIE MANAGEMENT</p>
+        <h1>Alles im Blick.<br>Auch nach Mitternacht.</h1>
+        <p>Bestellungen, Lager, Menüs, Organisationen und Mitarbeitende in einem modernen Kassensystem.</p>
+      </div>
+      <div class="orb orb-one"></div>
+      <div class="orb orb-two"></div>
+    </div>
+
+    <div class="login-panel">
+      <form id="loginForm" class="login-card">
+        <div class="mobile-brand brand-lockup">
+          <span class="brand-mark">AH</span>
+          <div><strong>THE AFTER HOURS</strong><small>Kassensystem</small></div>
+        </div>
+        <p class="eyebrow">MITARBEITER-LOGIN</p>
+        <h2>Willkommen zurück</h2>
+        <p class="muted">Melde dich mit deinem zugewiesenen Benutzerkonto an.</p>
+
+        <label class="field">
+          <span>Benutzername</span>
+          <input id="loginEmail" type="text" autocomplete="username" placeholder="z. B. inhaber" required>
+        </label>
+        <label class="field">
+          <span>Passwort</span>
+          <div class="input-with-button">
+            <input id="loginPassword" type="password" autocomplete="current-password" placeholder="••••••••" required>
+            <button type="button" class="icon-button" data-toggle-password="loginPassword" aria-label="Passwort anzeigen">◉</button>
+          </div>
+        </label>
+        <button class="button button--primary button--wide" type="submit">Anmelden</button>
+        <p id="loginHint" class="login-hint">Keine öffentliche Registrierung. Konten werden durch die Inhaber angelegt.</p>
+      </form>
+    </div>
+  </section>
+
+  <section id="passwordView" class="dialog-backdrop hidden">
+    <form id="passwordForm" class="dialog-card dialog-card--small">
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">ERSTER LOGIN</p>
+          <h2>Eigenes Passwort festlegen</h2>
+        </div>
+      </div>
+      <p class="muted">Das einmalige Startpasswort wird danach ungültig.</p>
+      <label class="field"><span>Neues Passwort</span><input id="newPassword" type="password" minlength="10" required></label>
+      <label class="field"><span>Passwort wiederholen</span><input id="newPasswordConfirm" type="password" minlength="10" required></label>
+      <button class="button button--primary button--wide" type="submit">Passwort speichern</button>
+    </form>
+  </section>
+
+  <div id="appView" class="app-shell hidden">
+    <aside id="sidebar" class="sidebar">
+      <div class="brand-lockup sidebar-brand">
+        <span class="brand-mark">AH</span>
+        <div><strong>THE AFTER HOURS</strong><small>Kassensystem</small></div>
+      </div>
+
+      <nav class="main-nav" aria-label="Hauptnavigation">
+        <button class="nav-item active" data-page="dashboard"><span class="nav-icon">⌂</span><span>Dashboard</span></button>
+        <button class="nav-item" data-page="orders"><span class="nav-icon">▤</span><span>Bestellungen</span><span id="openOrdersBadge" class="nav-badge">0</span></button>
+        <button class="nav-item" data-page="menus"><span class="nav-icon">☰</span><span>Menüs</span></button>
+        <button class="nav-item" data-page="ingredients"><span class="nav-icon">◇</span><span>Zutaten</span><span id="lowStockBadge" class="nav-badge nav-badge--danger">0</span></button>
+        <button class="nav-item" data-page="organizations"><span class="nav-icon">▦</span><span>Organisationen</span></button>
+      </nav>
+
+      <div class="nav-section-label">VERWALTUNG</div>
+      <nav class="main-nav" aria-label="Verwaltung">
+        <button class="nav-item permission-admin" data-page="employees"><span class="nav-icon">♙</span><span>Mitarbeiter</span></button>
+        <button class="nav-item permission-audit" data-page="audit"><span class="nav-icon">◷</span><span>Protokoll</span></button>
+        <button class="nav-item permission-settings" data-page="settings"><span class="nav-icon">⚙</span><span>Einstellungen</span></button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="shift-chip"><span class="status-dot"></span><div><small>Systemstatus</small><strong>Online</strong></div></div>
+        <button id="logoutButton" class="nav-item"><span class="nav-icon">↪</span><span>Abmelden</span></button>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <button id="mobileMenuButton" class="icon-button mobile-menu-button" aria-label="Navigation öffnen">☰</button>
+        <div class="topbar-title">
+          <p id="pageEyebrow" class="eyebrow">ÜBERSICHT</p>
+          <h1 id="pageTitle">Dashboard</h1>
+        </div>
+        <div class="topbar-actions">
+          <button id="quickOrderButton" class="button button--primary">＋ Neue Bestellung</button>
+          <div class="employee-menu">
+            <div id="employeeAvatar" class="avatar">AK</div>
+            <div class="employee-meta"><strong id="employeeName">Mitarbeiter</strong><small id="employeeRole">Rolle</small></div>
+          </div>
+        </div>
+      </header>
+
+      <div id="pageContent" class="page-content"></div>
+    </main>
+  </div>
+
+  <div id="modalHost"></div>
+
+  <template id="dashboardTemplate">
+    <section class="page-stack">
+      <div class="hero-panel">
+        <div>
+          <p class="eyebrow">LIVE-GESCHÄFTSBETRIEB</p>
+          <h2>Guten Abend, <span data-bind="firstName">Team</span>.</h2>
+          <p>Hier findest du die wichtigsten Kennzahlen für den heutigen Betrieb.</p>
+        </div>
+        <div class="live-clock"><small>Aktuelle Uhrzeit</small><strong id="liveClock">--:--</strong><span id="liveDate">--</span></div>
+      </div>
+
+      <div class="stats-grid">
+        <article class="stat-card stat-card--accent"><div class="stat-icon">$</div><div><small>Heutiger Umsatz</small><strong id="statRevenue">$0,00</strong><span id="statRevenueTrend">Heute</span></div></article>
+        <article class="stat-card"><div class="stat-icon">▤</div><div><small>Bestellungen</small><strong id="statOrders">0</strong><span id="statOpenOrders">0 offen</span></div></article>
+        <article class="stat-card"><div class="stat-icon">▣</div><div><small>Bar / Karte</small><strong id="statPaymentSplit">0 / 0</strong><span>Zahlungsvorgänge</span></div></article>
+        <article class="stat-card"><div class="stat-icon">♥</div><div><small>Trinkgeld</small><strong id="statTips">$0,00</strong><span>Heute erhalten</span></div></article>
+      </div>
+
+      <div class="dashboard-grid">
+        <article class="panel panel--span-2">
+          <div class="panel-heading"><div><p class="eyebrow">BESTELLUNGEN</p><h3>Zuletzt ausgeführt</h3></div><button class="text-button" data-navigate="orders">Alle ansehen →</button></div>
+          <div id="recentOrders" class="table-wrap"></div>
+        </article>
+        <article class="panel">
+          <div class="panel-heading"><div><p class="eyebrow">LAGERWARNUNG</p><h3>Niedrige Bestände</h3></div><span id="lowStockCount" class="status-pill status-pill--warning">0 Artikel</span></div>
+          <div id="lowStockList" class="stock-list"></div>
+        </article>
+        <article class="panel panel--span-2">
+          <div class="panel-heading"><div><p class="eyebrow">ZAHLUNGSÜBERSICHT</p><h3>Heutige Einnahmen</h3></div></div>
+          <div class="payment-breakdown"><div><span>Barzahlung</span><strong id="cashRevenue">$0,00</strong><div class="progress"><i id="cashProgress"></i></div></div><div><span>Kartenzahlung</span><strong id="cardRevenue">$0,00</strong><div class="progress"><i id="cardProgress"></i></div></div></div>
+        </article>
+        <article class="panel notice-panel">
+          <div class="panel-heading"><div><p class="eyebrow">SCHWARZES BRETT</p><h3>Mitteilungen</h3></div><button class="icon-button permission-notices" id="addNoticeButton">＋</button></div>
+          <div id="noticeList" class="notice-list"></div>
+        </article>
+      </div>
+    </section>
+  </template>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="assets/js/config.js"></script>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>
