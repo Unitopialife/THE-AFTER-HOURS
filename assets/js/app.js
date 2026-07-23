@@ -3,8 +3,14 @@
 
   const CONFIG = window.AFTER_HOURS_CONFIG || {};
   const PUBLIC_SUPABASE_KEY = CONFIG.supabasePublishableKey || CONFIG.supabaseAnonKey || '';
-  const HAS_SUPABASE = Boolean(CONFIG.supabaseUrl && PUBLIC_SUPABASE_KEY && window.supabase);
-  const DEMO_MODE = CONFIG.demoMode || !HAS_SUPABASE;
+  const SUPABASE_CONFIGURED = Boolean(CONFIG.supabaseUrl && PUBLIC_SUPABASE_KEY);
+  const HAS_SUPABASE = Boolean(SUPABASE_CONFIGURED && window.supabase);
+  const DEMO_MODE = CONFIG.demoMode === true || (CONFIG.demoMode !== false && !HAS_SUPABASE);
+  const SUPABASE_SETUP_ERROR = !DEMO_MODE && !HAS_SUPABASE
+    ? (!SUPABASE_CONFIGURED
+        ? 'Supabase ist nicht vollständig konfiguriert. Bitte URL und Publishable Key in assets/js/config.js prüfen.'
+        : 'Supabase konnte nicht geladen werden. Bitte Internetverbindung, CDN-Zugriff oder Browser-Konsole prüfen.')
+    : '';
   const supabaseClient = HAS_SUPABASE
     ? window.supabase.createClient(CONFIG.supabaseUrl, PUBLIC_SUPABASE_KEY, {
         auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
@@ -52,6 +58,10 @@
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
   const clone = value => JSON.parse(JSON.stringify(value));
+  const requireSupabaseClient = () => {
+    if (!supabaseClient) throw new Error(SUPABASE_SETUP_ERROR || 'Supabase ist nicht verfügbar.');
+    return supabaseClient;
+  };
   const uid = () => crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const nowIso = () => new Date().toISOString();
   const todayKey = () => new Date().toISOString().slice(0, 10);
@@ -136,6 +146,7 @@
     }
     async signOut() { this.session = false; localStorage.removeItem('after-hours-demo-session'); }
     async getSession() { return this.session ? { user: this.data.currentUser } : null; }
+    async getCurrentUser() { return clone(this.data.currentUser); }
     async updatePassword() { this.data.currentUser.must_change_password = false; this.save(); }
     async loadAll() { return clone(this.data); }
     async saveEntity(entity, record) {
@@ -225,20 +236,30 @@
 
   class SupabaseRepository {
     async signIn(identifier, password) {
+      const supabaseClient = requireSupabaseClient();
       const email = identifier.includes('@') ? identifier : `${identifier}@afterhours.local`;
       const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
       if (error) throw error;
       return data.user;
     }
-    async signOut() { const { error } = await supabaseClient.auth.signOut(); if (error) throw error; }
-    async getSession() { const { data } = await supabaseClient.auth.getSession(); return data.session; }
-    async updatePassword(password) {
-      const { error } = await supabaseClient.auth.updateUser({ password });
+    async signOut() { const supabaseClient = requireSupabaseClient(); const { error } = await supabaseClient.auth.signOut(); if (error) throw error; }
+    async getSession() { const supabaseClient = requireSupabaseClient(); const { data } = await supabaseClient.auth.getSession(); return data.session; }
+    async getCurrentUser() {
+      const supabaseClient = requireSupabaseClient();
+      const { data: userData, error: userError } = await supabaseClient.auth.getUser();
+      if (userError || !userData.user) throw userError || new Error('Nicht angemeldet.');
+      const { data, error } = await supabaseClient.from('profiles').select('*').eq('id', userData.user.id).single();
       if (error) throw error;
-      const { error: profileError } = await supabaseClient.from('profiles').update({ must_change_password:false }).eq('id', (await supabaseClient.auth.getUser()).data.user.id);
-      if (profileError) throw profileError;
+      return data;
+    }
+    async updatePassword(password) {
+      const supabaseClient = requireSupabaseClient();
+      const { data, error } = await supabaseClient.functions.invoke('complete-first-login', { body:{ password } });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
     }
     async loadAll() {
+      const supabaseClient = requireSupabaseClient();
       const tables = ['profiles','settings','ingredients','menus','organizations','orders','notices','audit_logs','stock_movements'];
       const results = await Promise.all(tables.map(async table => {
         let query = supabaseClient.from(table).select('*');
@@ -368,21 +389,32 @@
   function showLogin() {
     $('#loginView').classList.remove('hidden');
     $('#appView').classList.add('hidden');
+    $('#passwordView').classList.add('hidden');
     if (DEMO_MODE) $('#loginHint').innerHTML = 'Demo-Zugang: <strong>inhaber</strong> / <strong>afterhours</strong><br>Keine öffentliche Registrierung.';
+    else $('#loginHint').textContent = SUPABASE_SETUP_ERROR || 'Keine öffentliche Registrierung. Konten werden durch die Inhaber angelegt.';
   }
 
   async function enterApp() {
-    state.data = await repository.loadAll();
-    if (!state.data.currentUser || state.data.currentUser.active === false) {
+    const currentUser = await repository.getCurrentUser();
+    if (!currentUser || currentUser.active === false) {
       await repository.signOut();
       throw new Error('Dieses Mitarbeiterkonto ist deaktiviert.');
     }
+    state.data = {
+      currentUser, settings: {}, ingredients: [], menus: [], organizations: [],
+      employees: [], orders: [], notices: [], audit: [], stockMovements: []
+    };
     $('#loginView').classList.add('hidden');
     $('#appView').classList.remove('hidden');
     updateEmployeeUi();
     applyPermissionVisibility();
     navigate('dashboard');
-    if (state.data.currentUser?.must_change_password) $('#passwordView').classList.remove('hidden');
+    if (currentUser.must_change_password) {
+      $('#passwordView').classList.remove('hidden');
+      return;
+    }
+    await reloadData();
+    navigate('dashboard');
   }
 
   function updateEmployeeUi() {
@@ -840,7 +872,7 @@
       event.preventDefault(); const p=$('#newPassword').value,c=$('#newPasswordConfirm').value;
       if(p!==c)return toast('Die Passwörter stimmen nicht überein.','error');
       if(p.length<10)return toast('Das Passwort muss mindestens 10 Zeichen enthalten.','error');
-      await withLoading(event.submitter,async()=>{await repository.updatePassword(p);$('#passwordView').classList.add('hidden');await reloadData();toast('Das neue Passwort wurde gespeichert.','success');});
+      await withLoading(event.submitter,async()=>{await repository.updatePassword(p);$('#passwordView').classList.add('hidden');await reloadData();renderPage();toast('Das neue Passwort wurde gespeichert.','success');});
     });
     $$('.nav-item[data-page]').forEach(btn=>btn.addEventListener('click',()=>navigate(btn.dataset.page)));
     $('#quickOrderButton').addEventListener('click',openOrderModal);
