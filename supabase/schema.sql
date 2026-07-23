@@ -64,7 +64,7 @@ create table if not exists public.menus (
 
 create table if not exists public.menu_ingredients (
   menu_id uuid not null references public.menus(id) on delete cascade,
-  ingredient_id uuid not null references public.ingredients(id) on delete restrict,
+  ingredient_id uuid not null references public.ingredients(id) on delete cascade,
   quantity numeric(14,3) not null check (quantity > 0),
   primary key (menu_id, ingredient_id)
 );
@@ -110,7 +110,7 @@ create table if not exists public.orders (
 
 create table if not exists public.stock_movements (
   id uuid primary key default gen_random_uuid(),
-  ingredient_id uuid not null references public.ingredients(id) on delete restrict,
+  ingredient_id uuid references public.ingredients(id) on delete set null,
   ingredient_name text not null,
   quantity numeric(14,3) not null check (quantity <> 0),
   reason text not null,
@@ -150,6 +150,35 @@ create index if not exists idx_orders_status on public.orders(status);
 create index if not exists idx_stock_movements_ingredient on public.stock_movements(ingredient_id, created_at desc);
 create index if not exists idx_audit_created_at on public.audit_logs(created_at desc);
 create index if not exists idx_menu_ingredients_ingredient on public.menu_ingredients(ingredient_id);
+
+do $$
+begin
+  alter table public.stock_movements alter column ingredient_id drop not null;
+
+  if exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.menu_ingredients'::regclass
+      and conname = 'menu_ingredients_ingredient_id_fkey'
+  ) then
+    alter table public.menu_ingredients drop constraint menu_ingredients_ingredient_id_fkey;
+  end if;
+
+  alter table public.menu_ingredients
+    add constraint menu_ingredients_ingredient_id_fkey
+    foreign key (ingredient_id) references public.ingredients(id) on delete cascade;
+
+  if exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.stock_movements'::regclass
+      and conname = 'stock_movements_ingredient_id_fkey'
+  ) then
+    alter table public.stock_movements drop constraint stock_movements_ingredient_id_fkey;
+  end if;
+
+  alter table public.stock_movements
+    add constraint stock_movements_ingredient_id_fkey
+    foreign key (ingredient_id) references public.ingredients(id) on delete set null;
+end $$;
 
 -- ---------------------------------------------------------------------------
 -- Initial settings

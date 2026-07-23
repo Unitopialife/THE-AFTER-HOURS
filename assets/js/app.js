@@ -344,10 +344,6 @@
       const tableMap = { menus:'menus', ingredients:'ingredients' };
       const table = tableMap[entity];
       if (!table) throw new Error('Dieser Datensatz kann hier nicht gelöscht werden.');
-      if (entity === 'menus') {
-        const { error: recipeError } = await supabaseClient.from('menu_ingredients').delete().eq('menu_id', id);
-        if (recipeError) throw recipeError;
-      }
       const { error } = await supabaseClient.from(table).delete().eq('id', id);
       if (error) throw error;
     }
@@ -400,6 +396,7 @@
     page: 'dashboard',
     filters: {},
     cart: [],
+    currentOrderExport: [],
     currentOrderOrganization: null,
     currentPaymentMethod: 'cash'
   };
@@ -683,7 +680,7 @@
     renderEntityPage(content, {
       entity:'ingredients', title:'Zutaten und Lagerbestände', searchPlaceholder:'Zutat oder Kategorie suchen', permission:PERMISSION.INGREDIENTS_MANAGE,
       columns:['Zutat','Kategorie','Einkauf','Verkauf','Bestand','Mindestbestand','Einheit','Eigenschaften','Zuletzt geändert',''],
-      row: item => `<td><div class="product-cell"><div class="product-thumb">${escapeHtml(item.name.slice(0,2).toUpperCase())}</div><div><strong>${escapeHtml(item.name)}</strong><small>${Number(item.stock)<=Number(item.min_stock)?'Niedriger Bestand':'Bestand ausreichend'}</small></div></div></td><td>${escapeHtml(item.category)}</td><td>${fmtCurrency(item.purchase_price)}</td><td>${fmtCurrency(item.sale_price)}</td><td><strong>${fmtNumber(item.stock)}</strong></td><td>${fmtNumber(item.min_stock)}</td><td>${escapeHtml(item.unit)}</td><td>${item.consumable?'Verzehrbar':''}${item.consumable&&item.producible?' · ':''}${item.producible?'Herstellbar':''}</td><td>${fmtDate(item.updated_at||item.created_at)}</td><td><div class="table-actions">${(hasPermission(PERMISSION.STOCK_MANAGE)||hasPermission(PERMISSION.AUDIT_VIEW))?`<button class="icon-button" data-stock-history="${item.id}" title="Bestandsverlauf">◷</button>`:''}${hasPermission(PERMISSION.STOCK_MANAGE)?`<button class="icon-button" data-stock="${item.id}" title="Lager ändern">±</button>`:''}${hasPermission(PERMISSION.INGREDIENTS_MANAGE)?`<button class="icon-button" data-edit-ingredient="${item.id}" title="Bearbeiten">✎</button>`:''}</div></td>`,
+      row: item => `<td><div class="product-cell"><div class="product-thumb">${escapeHtml(item.name.slice(0,2).toUpperCase())}</div><div><strong>${escapeHtml(item.name)}</strong><small>${Number(item.stock)<=Number(item.min_stock)?'Niedriger Bestand':'Bestand ausreichend'}</small></div></div></td><td>${escapeHtml(item.category)}</td><td>${fmtCurrency(item.purchase_price)}</td><td>${fmtCurrency(item.sale_price)}</td><td><strong>${fmtNumber(item.stock)}</strong></td><td>${fmtNumber(item.min_stock)}</td><td>${escapeHtml(item.unit)}</td><td>${item.consumable?'Verzehrbar':''}${item.consumable&&item.producible?' · ':''}${item.producible?'Herstellbar':''}</td><td>${fmtDate(item.updated_at||item.created_at)}</td><td><div class="table-actions">${(hasPermission(PERMISSION.STOCK_MANAGE)||hasPermission(PERMISSION.AUDIT_VIEW))?`<button class="icon-button" data-stock-history="${item.id}" title="Bestandsverlauf">◷</button>`:''}${hasPermission(PERMISSION.STOCK_MANAGE)?`<button class="icon-button" data-stock="${item.id}" title="Lager ändern">±</button>`:''}${hasPermission(PERMISSION.INGREDIENTS_MANAGE)?`<button class="icon-button" data-edit-ingredient="${item.id}" title="Bearbeiten">✎</button><button class="icon-button" data-delete-ingredient="${item.id}" title="Löschen">×</button>`:''}</div></td>`,
       search: item => `${item.name} ${item.category}`,
       onNew: () => openIngredientModal(), onEdit: id => openIngredientModal(state.data.ingredients.find(x=>x.id===id)), afterBind: () => { $$('[data-stock]').forEach(btn=>btn.addEventListener('click',()=>openStockModal(btn.dataset.stock))); $$('[data-stock-history]').forEach(btn=>btn.addEventListener('click',()=>openStockHistory(btn.dataset.stockHistory))); }
     });
@@ -750,11 +747,13 @@
   function renderEntityPage(content, cfg) {
     const canManage = hasPermission(cfg.permission);
     content.innerHTML = `<section class="page-stack"><div class="page-toolbar"><div class="search-row"><input id="entitySearch" placeholder="${escapeHtml(cfg.searchPlaceholder)}"></div>${canManage?'<button id="entityNew" class="button button--primary">＋ Neu anlegen</button>':''}</div><div class="data-panel"><div class="data-panel-header"><h3>${escapeHtml(cfg.title)}</h3><span class="muted">${state.data[cfg.entity].length} Einträge</span></div><div id="entityTable" class="table-wrap"></div></div></section>`;
+    const singular = cfg.entity.slice(0,-1);
     const render = () => {
       const q = $('#entitySearch').value.toLowerCase();
       const rows = state.data[cfg.entity].filter(item => cfg.search(item).toLowerCase().includes(q));
       $('#entityTable').innerHTML = rows.length ? `<table><thead><tr>${cfg.columns.map(c=>`<th>${c}</th>`).join('')}</tr></thead><tbody>${rows.map(item=>`<tr>${cfg.row(item)}</tr>`).join('')}</tbody></table>` : emptyState('Keine Einträge gefunden','Lege einen neuen Datensatz an oder ändere die Suche.');
-      $$(`[data-edit-${cfg.entity.slice(0,-1)}]`).forEach(btn=>btn.addEventListener('click',()=>cfg.onEdit(btn.dataset[`edit${capitalize(cfg.entity.slice(0,-1))}`])));
+      $$(`[data-edit-${singular}]`).forEach(btn=>btn.addEventListener('click',()=>cfg.onEdit(btn.dataset[`edit${capitalize(singular)}`])));
+      $$(`[data-delete-${singular}]`).forEach(btn=>btn.addEventListener('click',()=>openDeleteEntityModal(cfg.entity, btn.dataset[`delete${capitalize(singular)}`])));
       cfg.afterBind?.();
     };
     $('#entitySearch').addEventListener('input',render);
@@ -763,7 +762,9 @@
   }
 
   function entityActions(entity,id,permission) {
-    return hasPermission(permission) ? `<div class="table-actions"><button class="icon-button" data-edit-${entity}="${id}" title="Bearbeiten">✎</button></div>` : '';
+    if (!hasPermission(permission)) return '';
+    const deleteButton = ['menu','ingredient'].includes(entity) ? `<button class="icon-button" data-delete-${entity}="${id}" title="Löschen">×</button>` : '';
+    return `<div class="table-actions"><button class="icon-button" data-edit-${entity}="${id}" title="Bearbeiten">✎</button>${deleteButton}</div>`;
   }
   function capitalize(value) { return value.charAt(0).toUpperCase()+value.slice(1); }
   function permissionLabel(permission) {
@@ -777,8 +778,39 @@
   function renderDenied(content) { content.innerHTML = `<div class="panel empty-state"><strong>Kein Zugriff</strong>Dein Benutzerkonto besitzt nicht die erforderliche Berechtigung.</div>`; }
   function emptyState(title,text) { return `<div class="empty-state"><strong>${escapeHtml(title)}</strong>${escapeHtml(text)}</div>`; }
 
-  function openModal(html, { onOpen } = {}) {
-    $('#modalHost').innerHTML = `<div class="dialog-backdrop"><div class="dialog-card">${html}</div></div>`;
+  function openDeleteEntityModal(entity, id) {
+    const item = state.data[entity]?.find(record => record.id === id);
+    if (!item) return toast('Datensatz nicht gefunden.','error');
+    const label = ({ menus:'Menü', ingredients:'Zutat' })[entity] || 'Datensatz';
+    const name = item.name || item.full_name || item.order_number || label;
+    const canDeactivate = Object.prototype.hasOwnProperty.call(item, 'active') && item.active !== false;
+    openModal(`<div class="dialog-heading"><div><p class="eyebrow">LÖSCHEN</p><h2>${escapeHtml(label)} löschen?</h2></div><button type="button" class="icon-button" data-close-modal>×</button></div><p class="muted">"${escapeHtml(name)}" wird dauerhaft entfernt. Bestandsbewegungen bleiben als Protokoll erhalten.</p><div class="dialog-footer"><button type="button" class="button button--secondary" data-close-modal>Abbrechen</button>${canDeactivate?'<button type="button" id="deactivateEntity" class="button button--secondary">Deaktivieren</button>':''}<button type="button" id="deleteEntity" class="button button--danger">Endgültig löschen</button></div>`, {
+      className: 'dialog-card--small',
+      onOpen: () => {
+        $('#deleteEntity').addEventListener('click', async event => {
+          await withLoading(event.currentTarget, async () => {
+            await repository.deleteEntity(entity, id);
+            await reloadData();
+            closeModal();
+            renderPage();
+            toast(`${label} wurde gelöscht.`,'success');
+          });
+        });
+        $('#deactivateEntity')?.addEventListener('click', async event => {
+          await withLoading(event.currentTarget, async () => {
+            await repository.deactivateEntity(entity, id);
+            await reloadData();
+            closeModal();
+            renderPage();
+            toast(`${label} wurde deaktiviert.`,'success');
+          });
+        });
+      }
+    });
+  }
+
+  function openModal(html, { onOpen, className = '' } = {}) {
+    $('#modalHost').innerHTML = `<div class="dialog-backdrop"><div class="dialog-card ${className}">${html}</div></div>`;
     const backdrop = $('.dialog-backdrop', $('#modalHost'));
     backdrop.addEventListener('mousedown',event=>{ if(event.target===backdrop) closeModal(); });
     $$('[data-close-modal]', backdrop).forEach(btn=>btn.addEventListener('click',closeModal));

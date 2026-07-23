@@ -151,6 +151,7 @@ tr:last-child td { border-bottom:0; }
 .notice-item p { margin:8px 0 0; color:#9ea3a8; font-size:11px; line-height:1.5; }
 
 .page-toolbar { display:flex; align-items:center; gap:12px; justify-content:space-between; }
+.toolbar-actions { display:flex; align-items:center; justify-content:flex-end; gap:10px; flex-wrap:wrap; }
 .search-row { display:flex; gap:10px; flex:1; max-width:680px; }
 .search-row input { max-width:360px; }
 .filter-select { width:auto; min-width:160px; }
@@ -230,6 +231,8 @@ tr:last-child td { border-bottom:0; }
   .panel--span-2 { grid-column:span 1; }
   .payment-breakdown { grid-template-columns:1fr; }
   .page-toolbar { align-items:stretch; flex-direction:column; }
+  .toolbar-actions { width:100%; justify-content:stretch; }
+  .toolbar-actions .button { flex:1; }
   .search-row { max-width:none; flex-direction:column; }
   .search-row input,.filter-select { width:100%; max-width:none; }
   .form-grid { grid-template-columns:1fr; }
