@@ -338,13 +338,13 @@
     }
     async createEmployee(payload) {
       const { data, error } = await supabaseClient.functions.invoke('create-employee', { body:payload });
-      if (error) throw error;
+      if (error) throw new Error(`${error.message || 'Edge Function konnte nicht erreicht werden.'} Bitte create-employee in Supabase Edge Functions deployen.`);
       if (data?.error) throw new Error(data.error);
       return data;
     }
     async updateEmployee(payload) {
       const { data, error } = await supabaseClient.functions.invoke('update-employee', { body:payload });
-      if (error) throw error;
+      if (error) throw new Error(`${error.message || 'Edge Function konnte nicht erreicht werden.'} Bitte update-employee in Supabase Edge Functions deployen.`);
       if (data?.error) throw new Error(data.error);
       return data;
     }
