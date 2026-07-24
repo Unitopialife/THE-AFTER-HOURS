@@ -721,6 +721,7 @@
       columns:['Mitarbeiter','Benutzername','Ingame-Nummer','Rolle','Passwortwechsel','Status','Erstellt',''],
       row:item=>`<td><div class="product-cell"><div class="avatar">${initials(item.full_name)}</div><div><strong>${escapeHtml(item.full_name)}</strong><small>${escapeHtml(item.id)}</small></div></div></td><td>${escapeHtml(item.username)}</td><td>${escapeHtml(employeeIngameNumber(item) || '—')}</td><td>${escapeHtml(ROLE_LABELS[item.role]||item.role)}</td><td>${item.must_change_password?statusPill('open'):statusPill('completed')}</td><td>${item.active?'<span class="status-pill status-pill--success">Aktiv</span>':'<span class="status-pill status-pill--danger">Entlassen</span>'}</td><td>${fmtDate(item.created_at)}</td><td><div class="table-actions"><button class="icon-button" data-edit-employee="${item.id}" title="Bearbeiten">✎</button>${item.active && item.id !== state.data.currentUser.id ? `<button class="icon-button" data-dismiss-employee="${item.id}" title="Entlassen">×</button>` : ''}</div></td>`,
       search:item=>`${item.full_name} ${item.username} ${employeeIngameNumber(item)} ${ROLE_LABELS[item.role]}`,
+      filter:item=>item.active !== false,
       onNew:()=>openEmployeeModal(), onEdit:id=>openEmployeeModal(state.data.employees.find(x=>x.id===id)),
       afterBind:()=>$$('[data-dismiss-employee]').forEach(btn=>btn.addEventListener('click',()=>openDismissEmployeeModal(btn.dataset.dismissEmployee)))
     });
@@ -765,11 +766,12 @@
 
   function renderEntityPage(content, cfg) {
     const canManage = hasPermission(cfg.permission);
-    content.innerHTML = `<section class="page-stack"><div class="page-toolbar"><div class="search-row"><input id="entitySearch" placeholder="${escapeHtml(cfg.searchPlaceholder)}"></div>${canManage?'<button id="entityNew" class="button button--primary">＋ Neu anlegen</button>':''}</div><div class="data-panel"><div class="data-panel-header"><h3>${escapeHtml(cfg.title)}</h3><span class="muted">${state.data[cfg.entity].length} Einträge</span></div><div id="entityTable" class="table-wrap"></div></div></section>`;
+    const visibleItems = state.data[cfg.entity].filter(item => cfg.filter ? cfg.filter(item) : true);
+    content.innerHTML = `<section class="page-stack"><div class="page-toolbar"><div class="search-row"><input id="entitySearch" placeholder="${escapeHtml(cfg.searchPlaceholder)}"></div>${canManage?'<button id="entityNew" class="button button--primary">＋ Neu anlegen</button>':''}</div><div class="data-panel"><div class="data-panel-header"><h3>${escapeHtml(cfg.title)}</h3><span class="muted">${visibleItems.length} Einträge</span></div><div id="entityTable" class="table-wrap"></div></div></section>`;
     const singular = cfg.entity.slice(0,-1);
     const render = () => {
       const q = $('#entitySearch').value.toLowerCase();
-      const rows = state.data[cfg.entity].filter(item => cfg.search(item).toLowerCase().includes(q));
+      const rows = visibleItems.filter(item => cfg.search(item).toLowerCase().includes(q));
       $('#entityTable').innerHTML = rows.length ? `<table><thead><tr>${cfg.columns.map(c=>`<th>${c}</th>`).join('')}</tr></thead><tbody>${rows.map(item=>`<tr>${cfg.row(item)}</tr>`).join('')}</tbody></table>` : emptyState('Keine Einträge gefunden','Lege einen neuen Datensatz an oder ändere die Suche.');
       $$(`[data-edit-${singular}]`).forEach(btn=>btn.addEventListener('click',()=>cfg.onEdit(btn.dataset[`edit${capitalize(singular)}`])));
       $$(`[data-delete-${singular}]`).forEach(btn=>btn.addEventListener('click',()=>openDeleteEntityModal(cfg.entity, btn.dataset[`delete${capitalize(singular)}`])));
