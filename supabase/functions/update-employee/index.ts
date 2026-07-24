@@ -49,7 +49,10 @@ Deno.serve(async (request: Request) => {
     const { error: profileError } = await adminClient.from('profiles').update({ full_name: fullName, email: contactEmail, role, permissions, active }).eq('id', id)
     if (profileError) return json({ error: profileError.message }, 400)
 
-    const authUpdate: Record<string, unknown> = { app_metadata: { role } }
+    const authUpdate: Record<string, unknown> = {
+      app_metadata: { role },
+      ban_duration: active ? 'none' : '876000h',
+    }
     const { error: authError } = await adminClient.auth.admin.updateUserById(id, authUpdate)
     if (authError) return json({ error: authError.message }, 400)
 

@@ -239,6 +239,10 @@
       const email = payload.email || `${payload.username}@afterhours.local`;
       return this.saveEntity('employees', { ...payload, email, must_change_password:true, permissions:payload.permissions || [] });
     }
+    async dismissEmployee(employee) {
+      if (employee.id === this.data.currentUser.id) throw new Error('Das eigene Konto kann nicht entlassen werden.');
+      return this.saveEntity('employees', { id:employee.id, active:false });
+    }
     async updateSettings(settings) {
       this.data.settings = { ...this.data.settings, ...settings };
       this.audit('settings.updated', 'settings', 'Systemeinstellungen', 'Einstellungen wurden gespeichert.');
@@ -374,6 +378,16 @@
       if (error) throw new Error(`${error.message || 'Edge Function konnte nicht erreicht werden.'} Bitte update-employee in Supabase Edge Functions deployen.`);
       if (data?.error) throw new Error(data.error);
       return data;
+    }
+    async dismissEmployee(employee) {
+      return this.updateEmployee({
+        id: employee.id,
+        full_name: employee.full_name,
+        email: employee.email,
+        role: employee.role,
+        active: false,
+        permissions: employee.permissions || []
+      });
     }
     async uploadProductImage(file) {
       const extension = (file.name.split('.').pop() || 'webp').toLowerCase();
@@ -701,9 +715,10 @@
     renderEntityPage(content, {
       entity:'employees', title:'Mitarbeiter und Benutzerkonten', searchPlaceholder:'Name, Benutzername oder Rolle suchen', permission:PERMISSION.EMPLOYEES_MANAGE,
       columns:['Mitarbeiter','Benutzername','E-Mail','Rolle','Passwortwechsel','Status','Erstellt',''],
-      row:item=>`<td><div class="product-cell"><div class="avatar">${initials(item.full_name)}</div><div><strong>${escapeHtml(item.full_name)}</strong><small>${escapeHtml(item.id)}</small></div></div></td><td>${escapeHtml(item.username)}</td><td>${escapeHtml(item.email)}</td><td>${escapeHtml(ROLE_LABELS[item.role]||item.role)}</td><td>${item.must_change_password?statusPill('open'):statusPill('completed')}</td><td>${item.active?statusPill('completed'):statusPill('cancelled')}</td><td>${fmtDate(item.created_at)}</td><td><div class="table-actions"><button class="icon-button" data-edit-employee="${item.id}">✎</button></div></td>`,
+      row:item=>`<td><div class="product-cell"><div class="avatar">${initials(item.full_name)}</div><div><strong>${escapeHtml(item.full_name)}</strong><small>${escapeHtml(item.id)}</small></div></div></td><td>${escapeHtml(item.username)}</td><td>${escapeHtml(item.email)}</td><td>${escapeHtml(ROLE_LABELS[item.role]||item.role)}</td><td>${item.must_change_password?statusPill('open'):statusPill('completed')}</td><td>${item.active?'<span class="status-pill status-pill--success">Aktiv</span>':'<span class="status-pill status-pill--danger">Entlassen</span>'}</td><td>${fmtDate(item.created_at)}</td><td><div class="table-actions"><button class="icon-button" data-edit-employee="${item.id}" title="Bearbeiten">✎</button>${item.active && item.id !== state.data.currentUser.id ? `<button class="icon-button" data-dismiss-employee="${item.id}" title="Entlassen">×</button>` : ''}</div></td>`,
       search:item=>`${item.full_name} ${item.username} ${item.email} ${ROLE_LABELS[item.role]}`,
-      onNew:()=>openEmployeeModal(), onEdit:id=>openEmployeeModal(state.data.employees.find(x=>x.id===id))
+      onNew:()=>openEmployeeModal(), onEdit:id=>openEmployeeModal(state.data.employees.find(x=>x.id===id)),
+      afterBind:()=>$$('[data-dismiss-employee]').forEach(btn=>btn.addEventListener('click',()=>openDismissEmployeeModal(btn.dataset.dismissEmployee)))
     });
   }
 
@@ -803,6 +818,27 @@
             closeModal();
             renderPage();
             toast(`${label} wurde deaktiviert.`,'success');
+          });
+        });
+      }
+    });
+  }
+
+  function openDismissEmployeeModal(id) {
+    const employee = state.data.employees.find(item => item.id === id);
+    if (!employee) return toast('Mitarbeiterkonto nicht gefunden.','error');
+    if (employee.id === state.data.currentUser.id) return toast('Das eigene Konto kann nicht entlassen werden.','error');
+    if (employee.active === false) return toast('Dieses Mitarbeiterkonto ist bereits entlassen.','error');
+    openModal(`<div class="dialog-heading"><div><p class="eyebrow">MITARBEITER</p><h2>${escapeHtml(employee.full_name)} entlassen?</h2></div><button type="button" class="icon-button" data-close-modal>×</button></div><p class="muted">Das Benutzerkonto wird deaktiviert und der Login wird gesperrt. Bestellungen, Lagerbewegungen und Protokolle bleiben weiterhin diesem Mitarbeiter zugeordnet.</p><div class="dialog-footer"><button type="button" class="button button--secondary" data-close-modal>Abbrechen</button><button type="button" id="dismissEmployee" class="button button--danger">Mitarbeiter entlassen</button></div>`, {
+      className: 'dialog-card--small',
+      onOpen: () => {
+        $('#dismissEmployee').addEventListener('click', async event => {
+          await withLoading(event.currentTarget, async () => {
+            await repository.dismissEmployee(employee);
+            await reloadData();
+            closeModal();
+            renderPage();
+            toast('Mitarbeiter wurde entlassen.','success');
           });
         });
       }
