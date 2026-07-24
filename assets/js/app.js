@@ -72,10 +72,14 @@
   const fmtNumber = value => new Intl.NumberFormat('de-DE', { maximumFractionDigits: 2 }).format(Number(value || 0));
   const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
   const initials = name => String(name || 'M').split(/\s+/).map(part => part[0]).join('').slice(0, 2).toUpperCase();
+  const employeeIngameNumber = employee => {
+    const value = String(employee?.email || '').trim();
+    return /^\d+$/.test(value) ? value : '';
+  };
 
   const initialDemoData = {
     currentUser: {
-      id: 'demo-owner', username: 'inhaber', email: 'inhaber@afterhours.local',
+      id: 'demo-owner', username: 'inhaber', email: '445209',
       full_name: 'André Kasper', role: 'owner', permissions: [], active: true, must_change_password: false
     },
     settings: {
@@ -107,9 +111,9 @@
       { id:'org-3', name:'Downtown Cab Co.', contact_person:'Disposition', phone:'555-0103', email:'cab@ls.local', discount_type:'fixed', discount_value:2, active:true, notes:'Maximal ein Rabatt pro Bestellung.' }
     ],
     employees: [
-      { id:'demo-owner', username:'inhaber', email:'inhaber@afterhours.local', full_name:'André Kasper', role:'owner', permissions:[], active:true, must_change_password:false, created_at:nowIso() },
-      { id:'emp-2', username:'mia', email:'mia@afterhours.local', full_name:'Mia Schneider', role:'shift_lead', permissions:[], active:true, must_change_password:false, created_at:nowIso() },
-      { id:'emp-3', username:'lukas', email:'lukas@afterhours.local', full_name:'Lukas Weber', role:'cashier', permissions:[], active:true, must_change_password:false, created_at:nowIso() }
+      { id:'demo-owner', username:'inhaber', email:'445209', full_name:'André Kasper', role:'owner', permissions:[], active:true, must_change_password:false, created_at:nowIso() },
+      { id:'emp-2', username:'mia', email:'445210', full_name:'Mia Schneider', role:'shift_lead', permissions:[], active:true, must_change_password:false, created_at:nowIso() },
+      { id:'emp-3', username:'lukas', email:'445211', full_name:'Lukas Weber', role:'cashier', permissions:[], active:true, must_change_password:false, created_at:nowIso() }
     ],
     orders: [
       { id:'ord-1', order_number:'AH-1047', sales_location:'Hauptkasse', organization_id:null, organization_name:'', discount_amount:0, subtotal:18.90, tax_amount:1.72, total:18.90, received_amount:20, change_amount:1.10, payment_method:'cash', tip:0, employee_id:'emp-2', employee_name:'Mia Schneider', status:'completed', created_at:new Date(Date.now()-1000*60*22).toISOString(), items:[{type:'menu',reference_id:'menu-4',name:'Night Shift Combo',quantity:1,unit_price:18.90,tax_rate:10}] },
@@ -713,10 +717,10 @@
   function renderEmployees(content) {
     if (!hasPermission(PERMISSION.EMPLOYEES_MANAGE)) return renderDenied(content);
     renderEntityPage(content, {
-      entity:'employees', title:'Mitarbeiter und Benutzerkonten', searchPlaceholder:'Name, Benutzername oder Rolle suchen', permission:PERMISSION.EMPLOYEES_MANAGE,
-      columns:['Mitarbeiter','Benutzername','E-Mail','Rolle','Passwortwechsel','Status','Erstellt',''],
-      row:item=>`<td><div class="product-cell"><div class="avatar">${initials(item.full_name)}</div><div><strong>${escapeHtml(item.full_name)}</strong><small>${escapeHtml(item.id)}</small></div></div></td><td>${escapeHtml(item.username)}</td><td>${escapeHtml(item.email)}</td><td>${escapeHtml(ROLE_LABELS[item.role]||item.role)}</td><td>${item.must_change_password?statusPill('open'):statusPill('completed')}</td><td>${item.active?'<span class="status-pill status-pill--success">Aktiv</span>':'<span class="status-pill status-pill--danger">Entlassen</span>'}</td><td>${fmtDate(item.created_at)}</td><td><div class="table-actions"><button class="icon-button" data-edit-employee="${item.id}" title="Bearbeiten">✎</button>${item.active && item.id !== state.data.currentUser.id ? `<button class="icon-button" data-dismiss-employee="${item.id}" title="Entlassen">×</button>` : ''}</div></td>`,
-      search:item=>`${item.full_name} ${item.username} ${item.email} ${ROLE_LABELS[item.role]}`,
+      entity:'employees', title:'Mitarbeiter und Benutzerkonten', searchPlaceholder:'Name, Benutzername, Ingame-Nummer oder Rolle suchen', permission:PERMISSION.EMPLOYEES_MANAGE,
+      columns:['Mitarbeiter','Benutzername','Ingame-Nummer','Rolle','Passwortwechsel','Status','Erstellt',''],
+      row:item=>`<td><div class="product-cell"><div class="avatar">${initials(item.full_name)}</div><div><strong>${escapeHtml(item.full_name)}</strong><small>${escapeHtml(item.id)}</small></div></div></td><td>${escapeHtml(item.username)}</td><td>${escapeHtml(employeeIngameNumber(item) || '—')}</td><td>${escapeHtml(ROLE_LABELS[item.role]||item.role)}</td><td>${item.must_change_password?statusPill('open'):statusPill('completed')}</td><td>${item.active?'<span class="status-pill status-pill--success">Aktiv</span>':'<span class="status-pill status-pill--danger">Entlassen</span>'}</td><td>${fmtDate(item.created_at)}</td><td><div class="table-actions"><button class="icon-button" data-edit-employee="${item.id}" title="Bearbeiten">✎</button>${item.active && item.id !== state.data.currentUser.id ? `<button class="icon-button" data-dismiss-employee="${item.id}" title="Entlassen">×</button>` : ''}</div></td>`,
+      search:item=>`${item.full_name} ${item.username} ${employeeIngameNumber(item)} ${ROLE_LABELS[item.role]}`,
       onNew:()=>openEmployeeModal(), onEdit:id=>openEmployeeModal(state.data.employees.find(x=>x.id===id)),
       afterBind:()=>$$('[data-dismiss-employee]').forEach(btn=>btn.addEventListener('click',()=>openDismissEmployeeModal(btn.dataset.dismissEmployee)))
     });
@@ -1008,11 +1012,11 @@
     const creating=!item.id;
     openModal(`<form id="employeeForm"><div class="dialog-heading"><div><p class="eyebrow">BENUTZERKONTO</p><h2>${creating?'Mitarbeiter anlegen':'Mitarbeiter bearbeiten'}</h2></div><button type="button" class="icon-button" data-close-modal>×</button></div><div class="form-grid">
       <label class="field"><span>Vollständiger Name</span><input name="full_name" value="${escapeHtml(item.full_name||'')}" required></label><label class="field"><span>Benutzername</span><input name="username" value="${escapeHtml(item.username||'')}" ${creating?'':'readonly'} required></label>
-      <label class="field"><span>E-Mail</span><input type="email" name="email" value="${escapeHtml(item.email||'')}"></label><label class="field"><span>Rolle</span><select name="role">${Object.entries(ROLE_LABELS).map(([value,label])=>`<option value="${value}" ${item.role===value?'selected':''}>${label}</option>`).join('')}</select></label>
+      <label class="field"><span>Ingame-Nummer</span><input type="text" inputmode="numeric" pattern="[0-9]*" name="ingame_number" value="${escapeHtml(employeeIngameNumber(item))}" placeholder="z. B. 445209"></label><label class="field"><span>Rolle</span><select name="role">${Object.entries(ROLE_LABELS).map(([value,label])=>`<option value="${value}" ${item.role===value?'selected':''}>${label}</option>`).join('')}</select></label>
       ${creating?'<label class="field span-2"><span>Einmaliges Startpasswort</span><input type="password" name="start_password" minlength="10" required><small class="muted">Beim ersten Login muss ein neues Passwort gesetzt werden.</small></label>':''}
       <label class="checkbox-field"><input type="checkbox" name="active" ${item.active!==false?'checked':''}> Account ist aktiv</label></div>
       <div class="panel" style="margin-top:20px"><div class="panel-heading"><div><p class="eyebrow">ZUSATZRECHTE</p><h3>Individuelle Berechtigungen</h3></div></div><div class="form-grid">${Object.values(PERMISSION).map(permission=>`<label class="checkbox-field"><input class="employee-permission" type="checkbox" value="${permission}" ${(item.permissions||[]).includes(permission)?'checked':''}> ${permissionLabel(permission)}</label>`).join('')}</div><p class="muted" style="font-size:11px">Diese Rechte ergänzen die ausgewählte Rolle. Inhaber und Administratoren besitzen automatisch alle Rechte.</p></div><div class="dialog-footer"><button type="button" class="button button--secondary" data-close-modal>Abbrechen</button><button class="button button--primary" type="submit">${creating?'Konto erstellen':'Änderungen speichern'}</button></div></form>`,{onOpen:()=>$('#employeeForm').addEventListener('submit',async event=>{
-      event.preventDefault(); const fd=new FormData(event.currentTarget); const payload=Object.fromEntries(fd.entries()); payload.active=fd.has('active'); payload.permissions=$$('.employee-permission').filter(input=>input.checked).map(input=>input.value);
+      event.preventDefault(); const fd=new FormData(event.currentTarget); const payload=Object.fromEntries(fd.entries()); payload.email=String(payload.ingame_number||'').trim(); delete payload.ingame_number; payload.active=fd.has('active'); payload.permissions=$$('.employee-permission').filter(input=>input.checked).map(input=>input.value);
       await withLoading(event.submitter,async()=>{
         if(creating) await repository.createEmployee(payload);
         else if(DEMO_MODE) await repository.saveEntity('employees',{...payload,id:item.id});

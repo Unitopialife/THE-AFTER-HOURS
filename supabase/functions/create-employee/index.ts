@@ -45,7 +45,7 @@ Deno.serve(async (request: Request) => {
     const role = String(payload.role || 'cashier')
     const password = String(payload.start_password || '')
     const authEmail = `${username}@afterhours.local`
-    const email = String(payload.email || authEmail).trim().toLowerCase()
+    const ingameNumber = String(payload.ingame_number ?? payload.email ?? '').trim()
     const active = payload.active !== false
     const permissions = Array.isArray(payload.permissions) ? payload.permissions.map(String) : []
 
@@ -67,7 +67,7 @@ Deno.serve(async (request: Request) => {
     const { error: profileError } = await adminClient.from('profiles').insert({
       id: created.user.id,
       username,
-      email,
+      email: ingameNumber,
       full_name: fullName,
       role,
       permissions,
@@ -91,7 +91,7 @@ Deno.serve(async (request: Request) => {
       metadata: { role, active },
     })
 
-    return json({ id: created.user.id, username, email, full_name: fullName, role, active }, 201)
+    return json({ id: created.user.id, username, email: ingameNumber, full_name: fullName, role, active }, 201)
   } catch (error) {
     console.error(error)
     return json({ error: error instanceof Error ? error.message : 'Interner Serverfehler.' }, 500)

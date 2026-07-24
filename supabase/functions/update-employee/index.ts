@@ -32,7 +32,8 @@ Deno.serve(async (request: Request) => {
     const payload = await request.json()
     const id = String(payload.id || '')
     const fullName = String(payload.full_name || '').trim()
-    const email = String(payload.email || '').trim().toLowerCase()
+    const hasIngameNumber = Object.prototype.hasOwnProperty.call(payload, 'ingame_number') || Object.prototype.hasOwnProperty.call(payload, 'email')
+    const ingameNumber = String(payload.ingame_number ?? payload.email ?? '').trim()
     const role = String(payload.role || 'cashier')
     const active = payload.active !== false
     const permissions = Array.isArray(payload.permissions) ? payload.permissions.map(String) : []
@@ -45,8 +46,8 @@ Deno.serve(async (request: Request) => {
     if (targetError) return json({ error: 'Mitarbeiterkonto nicht gefunden.' }, 404)
     if (target.role === 'owner' && caller.role !== 'owner') return json({ error: 'Nur ein Inhaber darf ein Inhaberkonto ändern.' }, 403)
 
-    const contactEmail = email || target.email
-    const { error: profileError } = await adminClient.from('profiles').update({ full_name: fullName, email: contactEmail, role, permissions, active }).eq('id', id)
+    const storedIngameNumber = hasIngameNumber ? ingameNumber : target.email
+    const { error: profileError } = await adminClient.from('profiles').update({ full_name: fullName, email: storedIngameNumber, role, permissions, active }).eq('id', id)
     if (profileError) return json({ error: profileError.message }, 400)
 
     const authUpdate: Record<string, unknown> = {
@@ -67,7 +68,7 @@ Deno.serve(async (request: Request) => {
       metadata: { role, active },
     })
 
-    return json({ id, full_name: fullName, email: contactEmail, role, active })
+    return json({ id, full_name: fullName, email: storedIngameNumber, role, active })
   } catch (error) {
     console.error(error)
     return json({ error: error instanceof Error ? error.message : 'Interner Serverfehler.' }, 500)
