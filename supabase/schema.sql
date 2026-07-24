@@ -526,6 +526,7 @@ declare
   usage_row record;
   recipe_row record;
   quantity numeric(14,3);
+  movement_ingredient_id uuid;
 begin
   if p_new_status='refunded' then
     if not (select private.has_permission('orders.refund')) and not (select private.has_permission('orders.cancel')) then raise exception 'Keine Berechtigung für Rückerstattungen.'; end if;
@@ -543,15 +544,23 @@ begin
     if jsonb_typeof(item->'stock_usage') = 'array' then
       for usage_row in select value from jsonb_array_elements(item->'stock_usage') as usage_items(value) loop
         quantity := (usage_row.value->>'quantity')::numeric;
-        update public.ingredients set stock=stock+quantity where id=(usage_row.value->>'ingredient_id')::uuid;
+        movement_ingredient_id := nullif(usage_row.value->>'ingredient_id','')::uuid;
+        update public.ingredients set stock=stock+quantity where id=movement_ingredient_id;
+        if not found then
+          movement_ingredient_id := null;
+        end if;
         insert into public.stock_movements(ingredient_id,ingredient_name,quantity,reason,order_id,employee_id,employee_name)
-        values((usage_row.value->>'ingredient_id')::uuid,usage_row.value->>'name',quantity,case when p_new_status='refunded' then 'Rückerstattung ' else 'Stornierung ' end||target_order.order_number,target_order.id,actor.id,actor.full_name);
+        values(movement_ingredient_id,usage_row.value->>'name',quantity,case when p_new_status='refunded' then 'Rückerstattung ' else 'Stornierung ' end||target_order.order_number,target_order.id,actor.id,actor.full_name);
       end loop;
     elsif item->>'type'='ingredient' then
       quantity := (item->>'quantity')::numeric;
-      update public.ingredients set stock=stock+quantity where id=(item->>'reference_id')::uuid;
+      movement_ingredient_id := nullif(item->>'reference_id','')::uuid;
+      update public.ingredients set stock=stock+quantity where id=movement_ingredient_id;
+      if not found then
+        movement_ingredient_id := null;
+      end if;
       insert into public.stock_movements(ingredient_id,ingredient_name,quantity,reason,order_id,employee_id,employee_name)
-      values((item->>'reference_id')::uuid,item->>'name',quantity,case when p_new_status='refunded' then 'Rückerstattung ' else 'Stornierung ' end||target_order.order_number,target_order.id,actor.id,actor.full_name);
+      values(movement_ingredient_id,item->>'name',quantity,case when p_new_status='refunded' then 'Rückerstattung ' else 'Stornierung ' end||target_order.order_number,target_order.id,actor.id,actor.full_name);
     end if;
   end loop;
 
