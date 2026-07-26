@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&family=Yellowtail&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="assets/css/styles.css?v=20260724-4">
+  <link rel="stylesheet" href="assets/css/styles.css?v=20260726-1">
 </head>
 <body>
   <div id="toastHost" class="toast-host" aria-live="polite"></div>
@@ -139,7 +139,7 @@
       <div class="stats-grid">
         <article class="stat-card stat-card--accent"><div class="stat-icon">$</div><div><small>Heutiger Umsatz</small><strong id="statRevenue">$0,00</strong><span id="statRevenueTrend">Heute</span></div></article>
         <article class="stat-card"><div class="stat-icon">▤</div><div><small>Bestellungen</small><strong id="statOrders">0</strong><span id="statOpenOrders">0 offen</span></div></article>
-        <article class="stat-card"><div class="stat-icon">▣</div><div><small>Bar / Karte</small><strong id="statPaymentSplit">0 / 0</strong><span>Zahlungsvorgänge</span></div></article>
+        <article class="stat-card"><div class="stat-icon">▣</div><div><small>Bar + Karte</small><strong id="statPaymentSplit">$0,00</strong><span id="statPaymentSplitMeta">0 Bar / 0 Karte</span></div></article>
         <article class="stat-card"><div class="stat-icon">♥</div><div><small>Trinkgeld</small><strong id="statTips">$0,00</strong><span>Heute erhalten</span></div></article>
       </div>
 
@@ -154,7 +154,11 @@
         </article>
         <article class="panel panel--span-2">
           <div class="panel-heading"><div><p class="eyebrow">ZAHLUNGSÜBERSICHT</p><h3>Heutige Einnahmen</h3></div></div>
-          <div class="payment-breakdown"><div><span>Barzahlung</span><strong id="cashRevenue">$0,00</strong><div class="progress"><i id="cashProgress"></i></div></div><div><span>Kartenzahlung</span><strong id="cardRevenue">$0,00</strong><div class="progress"><i id="cardProgress"></i></div></div></div>
+          <div class="payment-breakdown payment-breakdown--triple"><div><span>Barzahlung</span><strong id="cashRevenue">$0,00</strong><div class="progress"><i id="cashProgress"></i></div></div><div><span>Kartenzahlung</span><strong id="cardRevenue">$0,00</strong><div class="progress"><i id="cardProgress"></i></div></div><div><span>Bar + Karte gesamt</span><strong id="totalRevenue">$0,00</strong><div class="progress progress--total"><i id="totalProgress"></i></div></div></div>
+        </article>
+        <article class="panel">
+          <div class="panel-heading"><div><p class="eyebrow">TRINKGELD</p><h3>Mitarbeiter</h3></div></div>
+          <div id="tipSummaryList" class="tip-summary-list"></div>
         </article>
         <article class="panel notice-panel">
           <div class="panel-heading"><div><p class="eyebrow">SCHWARZES BRETT</p><h3>Mitteilungen</h3></div><button class="icon-button permission-notices" id="addNoticeButton">＋</button></div>
@@ -165,7 +169,7 @@
   </template>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="assets/js/config.js?v=20260724-4"></script>
-  <script src="assets/js/app.js?v=20260724-4"></script>
+  <script src="assets/js/config.js?v=20260726-1"></script>
+  <script src="assets/js/app.js?v=20260726-1"></script>
 </body>
 </html>

@@ -108,6 +108,16 @@ create table if not exists public.orders (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.tip_payouts (
+  id uuid primary key default gen_random_uuid(),
+  employee_id uuid references public.profiles(id) on delete set null,
+  employee_name text not null,
+  amount numeric(12,2) not null check (amount > 0),
+  paid_by uuid references public.profiles(id) on delete set null,
+  paid_by_name text not null default '',
+  created_at timestamptz not null default now()
+);
+
 create table if not exists public.stock_movements (
   id uuid primary key default gen_random_uuid(),
   ingredient_id uuid references public.ingredients(id) on delete set null,
@@ -147,6 +157,7 @@ create table if not exists public.audit_logs (
 create index if not exists idx_orders_created_at on public.orders(created_at desc);
 create index if not exists idx_orders_employee_id on public.orders(employee_id);
 create index if not exists idx_orders_status on public.orders(status);
+create index if not exists idx_tip_payouts_employee on public.tip_payouts(employee_id, created_at desc);
 create index if not exists idx_stock_movements_ingredient on public.stock_movements(ingredient_id, created_at desc);
 create index if not exists idx_audit_created_at on public.audit_logs(created_at desc);
 create index if not exists idx_menu_ingredients_ingredient on public.menu_ingredients(ingredient_id);
@@ -289,7 +300,7 @@ begin
 
   row_data := case when tg_op = 'DELETE' then to_jsonb(old) else to_jsonb(new) end;
   entity_id := coalesce(row_data->>'id', row_data->>'key', '');
-  entity_name := coalesce(row_data->>'name', row_data->>'full_name', row_data->>'title', row_data->>'key', '');
+  entity_name := coalesce(row_data->>'name', row_data->>'full_name', row_data->>'employee_name', row_data->>'title', row_data->>'key', '');
 
   insert into public.audit_logs(employee_id, employee_name, action, entity_type, entity_id, entity_name, details, metadata)
   values (actor_id, actor_name, lower(tg_table_name || '.' || tg_op), tg_table_name, entity_id, entity_name,
@@ -312,6 +323,7 @@ create or replace trigger audit_ingredients after insert or update or delete on 
 create or replace trigger audit_menus after insert or update or delete on public.menus for each row execute function public.audit_table_change();
 create or replace trigger audit_organizations after insert or update or delete on public.organizations for each row execute function public.audit_table_change();
 create or replace trigger audit_notices after insert or update or delete on public.notices for each row execute function public.audit_table_change();
+create or replace trigger audit_tip_payouts after insert on public.tip_payouts for each row execute function public.audit_table_change();
 
 create or replace function public.protect_discount_fields()
 returns trigger
@@ -623,6 +635,7 @@ alter table public.menus enable row level security;
 alter table public.menu_ingredients enable row level security;
 alter table public.organizations enable row level security;
 alter table public.orders enable row level security;
+alter table public.tip_payouts enable row level security;
 alter table public.stock_movements enable row level security;
 alter table public.notices enable row level security;
 alter table public.audit_logs enable row level security;
@@ -649,6 +662,8 @@ drop policy if exists organizations_insert on public.organizations;
 drop policy if exists organizations_update on public.organizations;
 drop policy if exists organizations_delete on public.organizations;
 drop policy if exists orders_select on public.orders;
+drop policy if exists tip_payouts_select on public.tip_payouts;
+drop policy if exists tip_payouts_insert on public.tip_payouts;
 drop policy if exists stock_movements_select on public.stock_movements;
 drop policy if exists notices_select on public.notices;
 drop policy if exists notices_insert on public.notices;
@@ -683,6 +698,8 @@ create policy organizations_update on public.organizations for update to authent
 create policy organizations_delete on public.organizations for delete to authenticated using ((select private.has_permission('organizations.manage')));
 
 create policy orders_select on public.orders for select to authenticated using ((select private.has_permission('orders.view')));
+create policy tip_payouts_select on public.tip_payouts for select to authenticated using ((select private.can_use_app()));
+create policy tip_payouts_insert on public.tip_payouts for insert to authenticated with check ((select private.has_permission('employees.manage')) and paid_by=(select auth.uid()));
 create policy stock_movements_select on public.stock_movements for select to authenticated using ((select private.has_permission('stock.manage')) or (select private.has_permission('audit.view')));
 
 create policy notices_select on public.notices for select to authenticated using ((select private.can_use_app()));
@@ -694,13 +711,14 @@ create policy audit_select on public.audit_logs for select to authenticated usin
 
 -- Least-privilege table grants. RPCs perform order and stock writes.
 revoke all on public.profiles, public.settings, public.ingredients, public.menus, public.menu_ingredients,
-  public.organizations, public.orders, public.stock_movements, public.notices, public.audit_logs
+  public.organizations, public.orders, public.tip_payouts, public.stock_movements, public.notices, public.audit_logs
   from anon, authenticated;
 revoke all on sequence public.order_number_seq from anon, authenticated;
 
 grant usage on schema public to authenticated;
-grant select on public.profiles, public.settings, public.ingredients, public.menus, public.menu_ingredients, public.organizations, public.orders, public.stock_movements, public.notices, public.audit_logs to authenticated;
+grant select on public.profiles, public.settings, public.ingredients, public.menus, public.menu_ingredients, public.organizations, public.orders, public.tip_payouts, public.stock_movements, public.notices, public.audit_logs to authenticated;
 grant insert, delete on public.ingredients, public.menus, public.menu_ingredients, public.organizations, public.notices to authenticated;
+grant insert on public.tip_payouts to authenticated;
 grant insert, update on public.settings to authenticated;
 revoke update (must_change_password) on public.profiles from authenticated;
 grant update (name,category,purchase_price,sale_price,tax_rate,organization_discount,min_stock,unit,consumable,producible,active,updated_at) on public.ingredients to authenticated;

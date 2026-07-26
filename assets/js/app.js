@@ -65,6 +65,13 @@
   const uid = () => crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const nowIso = () => new Date().toISOString();
   const todayKey = () => new Date().toISOString().slice(0, 10);
+  const startOfWeek = (date = new Date()) => {
+    const copy = new Date(date);
+    const dayOffset = (copy.getDay() + 6) % 7;
+    copy.setHours(0, 0, 0, 0);
+    copy.setDate(copy.getDate() - dayOffset);
+    return copy;
+  };
   const fmtCurrency = value => new Intl.NumberFormat(CONFIG.locale || 'de-DE', {
     style: 'currency', currency: state?.data?.settings?.currency || CONFIG.currency || 'USD'
   }).format(Number(value || 0));
@@ -121,6 +128,7 @@
       { id:'ord-3', order_number:'AH-1045', sales_location:'Terrasse', organization_id:null, organization_name:'', discount_amount:0, subtotal:7, tax_amount:.64, total:7, received_amount:10, change_amount:3, payment_method:'cash', tip:1, employee_id:'emp-3', employee_name:'Lukas Weber', status:'open', created_at:new Date(Date.now()-1000*60*83).toISOString(), items:[{type:'menu',reference_id:'menu-3',name:'Cola',quantity:2,unit_price:3.50,tax_rate:10}] }
     ],
     stockMovements: [],
+    tipPayouts: [],
     notices: [
       { id:'notice-1', title:'Wochenend-Schichtplan', body:'Bitte prüft eure eingetragenen Schichten bis Freitagabend.', author_name:'André Kasper', created_at:new Date(Date.now()-86400000).toISOString() },
       { id:'notice-2', title:'Lagerkontrolle', body:'Fleisch-Pattys und Salat werden heute nachbestellt.', author_name:'Mia Schneider', created_at:new Date(Date.now()-3600000*5).toISOString() }
@@ -134,6 +142,7 @@
     constructor() {
       const stored = localStorage.getItem('after-hours-demo-data-v1');
       this.data = stored ? JSON.parse(stored) : clone(initialDemoData);
+      if (!Array.isArray(this.data.tipPayouts)) this.data.tipPayouts = [];
       this.session = localStorage.getItem('after-hours-demo-session') === 'true';
     }
     save() { localStorage.setItem('after-hours-demo-data-v1', JSON.stringify(this.data)); }
@@ -247,6 +256,22 @@
       if (employee.id === this.data.currentUser.id) throw new Error('Das eigene Konto kann nicht entlassen werden.');
       return this.saveEntity('employees', { id:employee.id, active:false });
     }
+    async payOutTips(employee, amount) {
+      const payout = {
+        id:uid(),
+        employee_id:employee.employee_id || null,
+        employee_name:employee.employee_name,
+        amount:Number(Number(amount || 0).toFixed(2)),
+        paid_by:this.data.currentUser.id,
+        paid_by_name:this.data.currentUser.full_name,
+        created_at:nowIso()
+      };
+      if (payout.amount <= 0) throw new Error('Es gibt kein offenes Trinkgeld zum Auszahlen.');
+      this.data.tipPayouts.unshift(payout);
+      this.audit('tip.paid_out', 'tip_payout', payout.employee_name, `${fmtCurrency(payout.amount)} ausgezahlt.`);
+      this.save();
+      return clone(payout);
+    }
     async updateSettings(settings) {
       this.data.settings = { ...this.data.settings, ...settings };
       this.audit('settings.updated', 'settings', 'Systemeinstellungen', 'Einstellungen wurden gespeichert.');
@@ -303,6 +328,13 @@
         if (error) throw error;
         recipes = data;
       }
+      const { data: tipPayoutData, error: tipPayoutError } = await supabaseClient
+        .from('tip_payouts')
+        .select('*')
+        .order('created_at', { ascending:false })
+        .limit(250);
+      const tipPayoutsMissing = ['42P01', 'PGRST204', 'PGRST205'].includes(tipPayoutError?.code);
+      if (tipPayoutError && !tipPayoutsMissing) throw tipPayoutError;
       return {
         currentUser,
         settings: map.settings.reduce((acc, row) => ({ ...acc, [row.key]: row.value }), {}),
@@ -313,7 +345,8 @@
         orders: map.orders,
         notices: map.notices,
         audit: map.audit_logs,
-        stockMovements: map.stock_movements
+        stockMovements: map.stock_movements,
+        tipPayouts: tipPayoutData || []
       };
     }
     async saveEntity(entity, record) {
@@ -393,6 +426,21 @@
         permissions: employee.permissions || []
       });
     }
+    async payOutTips(employee, amount) {
+      const currentUser = state.data.currentUser;
+      const payload = {
+        employee_id: employee.employee_id || null,
+        employee_name: employee.employee_name,
+        amount:Number(Number(amount || 0).toFixed(2)),
+        paid_by: currentUser.id,
+        paid_by_name: currentUser.full_name || currentUser.username
+      };
+      if (payload.amount <= 0) throw new Error('Es gibt kein offenes Trinkgeld zum Auszahlen.');
+      const { data, error } = await supabaseClient.from('tip_payouts').insert(payload).select().single();
+      if (['42P01', 'PGRST204', 'PGRST205'].includes(error?.code)) throw new Error('Bitte zuerst die Migration 20260726_tip_payouts.sql in Supabase ausführen.');
+      if (error) throw error;
+      return data;
+    }
     async uploadProductImage(file) {
       const extension = (file.name.split('.').pop() || 'webp').toLowerCase();
       const path = `menus/${uid()}.${extension}`;
@@ -415,6 +463,7 @@
     filters: {},
     cart: [],
     currentOrderExport: [],
+    currentTipSummary: [],
     currentOrderOrganization: null,
     currentPaymentMethod: 'cash'
   };
@@ -449,7 +498,7 @@
     }
     state.data = {
       currentUser, settings: {}, ingredients: [], menus: [], organizations: [],
-      employees: [], orders: [], notices: [], audit: [], stockMovements: []
+      employees: [], orders: [], notices: [], audit: [], stockMovements: [], tipPayouts: []
     };
     $('#loginView').classList.add('hidden');
     $('#appView').classList.remove('hidden');
@@ -525,16 +574,21 @@
     const cardOrders = completed.filter(o => o.payment_method === 'card');
     const cashRevenue = cashOrders.reduce((sum,o) => sum + Number(o.total), 0);
     const cardRevenue = cardOrders.reduce((sum,o) => sum + Number(o.total), 0);
+    const totalPaymentRevenue = cashRevenue + cardRevenue;
     $('#statRevenue').textContent = fmtCurrency(revenue);
     $('#statOrders').textContent = orders.length;
     $('#statOpenOrders').textContent = `${orders.filter(o=>o.status==='open').length} offen · ${orders.filter(o=>['cancelled','refunded'].includes(o.status)).length} storniert`;
-    $('#statPaymentSplit').textContent = `${cashOrders.length} / ${cardOrders.length}`;
+    $('#statPaymentSplit').textContent = fmtCurrency(totalPaymentRevenue);
+    $('#statPaymentSplitMeta').textContent = `${cashOrders.length} Bar / ${cardOrders.length} Karte`;
     $('#statTips').textContent = fmtCurrency(tips);
     $('#cashRevenue').textContent = fmtCurrency(cashRevenue);
     $('#cardRevenue').textContent = fmtCurrency(cardRevenue);
+    $('#totalRevenue').textContent = fmtCurrency(totalPaymentRevenue);
     const totalPayment = Math.max(cashRevenue + cardRevenue, 1);
     $('#cashProgress').style.width = `${cashRevenue / totalPayment * 100}%`;
     $('#cardProgress').style.width = `${cardRevenue / totalPayment * 100}%`;
+    $('#totalProgress').style.width = `${totalPaymentRevenue > 0 ? 100 : 0}%`;
+    renderTipSummary();
 
     const recent = state.data.orders.slice(0,5);
     $('#recentOrders').innerHTML = recent.length ? orderTable(recent, true) : emptyState('Noch keine Bestellungen','Sobald eine Bestellung aufgenommen wurde, erscheint sie hier.');
@@ -550,6 +604,115 @@
     addNotice?.addEventListener('click', () => openNoticeModal());
     $$('[data-navigate]', content).forEach(btn => btn.addEventListener('click', () => navigate(btn.dataset.navigate)));
     startClock();
+  }
+
+  function employeeFinanceKey(record) {
+    if (record.employee_id) return record.employee_id;
+    if (record.id && (record.username || record.role) && !record.order_number) return record.id;
+    return `name:${record.employee_name || record.full_name || 'Unbekannt'}`;
+  }
+
+  function buildEmployeeFinanceSummary() {
+    const today = todayKey();
+    const weekStart = startOfWeek().getTime();
+    const rows = new Map();
+    const ensure = record => {
+      const key = employeeFinanceKey(record);
+      if (!rows.has(key)) {
+        rows.set(key, {
+          key,
+          employee_id: record.employee_id || ((record.username || record.role) && !record.order_number ? record.id : null),
+          employee_name: record.employee_name || record.full_name || 'Unbekannter Mitarbeiter',
+          todayTips: 0,
+          weekTips: 0,
+          openTips: 0,
+          weekRevenue: 0,
+          todayRevenue: 0,
+          completedOrders: 0,
+          lastPayoutAt: null
+        });
+      }
+      return rows.get(key);
+    };
+
+    (state.data.employees || []).filter(employee => employee.active !== false).forEach(employee => ensure(employee));
+
+    const lastPayouts = new Map();
+    (state.data.tipPayouts || []).forEach(payout => {
+      const key = employeeFinanceKey(payout);
+      const time = new Date(payout.created_at).getTime();
+      const current = lastPayouts.get(key);
+      if (!current || time > current.time) lastPayouts.set(key, { time, created_at:payout.created_at });
+    });
+
+    (state.data.orders || []).filter(order => order.status === 'completed').forEach(order => {
+      const row = ensure(order);
+      const createdAt = new Date(order.created_at);
+      const createdTime = createdAt.getTime();
+      const tip = Number(order.tip || 0);
+      const total = Number(order.total || 0);
+      const lastPayout = lastPayouts.get(row.key);
+      row.completedOrders += 1;
+      if (order.created_at?.slice(0, 10) === today) {
+        row.todayTips += tip;
+        row.todayRevenue += total;
+      }
+      if (createdTime >= weekStart) {
+        row.weekTips += tip;
+        row.weekRevenue += total;
+      }
+      if (tip > 0 && (!lastPayout || createdTime > lastPayout.time)) {
+        row.openTips += tip;
+      }
+      if (lastPayout?.created_at) row.lastPayoutAt = lastPayout.created_at;
+    });
+
+    return Array.from(rows.values())
+      .filter(row => row.employee_id || row.completedOrders || row.openTips || row.todayTips || row.weekTips || row.weekRevenue)
+      .sort((a, b) => b.openTips - a.openTips || b.weekTips - a.weekTips || a.employee_name.localeCompare(b.employee_name));
+  }
+
+  function renderTipSummary() {
+    const list = $('#tipSummaryList');
+    if (!list) return;
+    const rows = buildEmployeeFinanceSummary();
+    state.currentTipSummary = rows;
+    const canPayOut = hasPermission(PERMISSION.EMPLOYEES_MANAGE);
+    list.innerHTML = rows.length ? rows.map(row => `
+      <div class="tip-summary-item">
+        <div class="tip-summary-main">
+          <strong>${escapeHtml(row.employee_name)}</strong>
+          <small>Heute: ${fmtCurrency(row.todayTips)} Trinkgeld · Woche: ${fmtCurrency(row.weekTips)} Trinkgeld</small>
+          <small>Wochenumsatz: ${fmtCurrency(row.weekRevenue)} · Bestellungen: ${row.completedOrders}</small>
+          ${row.lastPayoutAt ? `<small>Letzte Auszahlung: ${fmtDate(row.lastPayoutAt)}</small>` : ''}
+        </div>
+        <div class="tip-summary-amount">
+          <span>Offen</span>
+          <strong>${fmtCurrency(row.openTips)}</strong>
+          ${canPayOut && row.openTips > 0 ? `<button class="button button--secondary" data-tip-payout="${escapeHtml(row.key)}">Auszahlen / Reset</button>` : ''}
+        </div>
+      </div>`).join('') : emptyState('Noch kein Trinkgeld', 'Sobald Bestellungen abgeschlossen wurden, erscheint die Mitarbeiter-Auswertung hier.');
+    $$('[data-tip-payout]', list).forEach(btn => btn.addEventListener('click', () => openTipPayoutModal(btn.dataset.tipPayout)));
+  }
+
+  function openTipPayoutModal(key) {
+    const row = (state.currentTipSummary || []).find(item => item.key === key);
+    if (!row) return toast('Mitarbeiter wurde nicht gefunden.', 'error');
+    if (row.openTips <= 0) return toast('Es gibt kein offenes Trinkgeld zum Auszahlen.', 'error');
+    openModal(`<div class="dialog-heading"><div><p class="eyebrow">TRINKGELD</p><h2>${escapeHtml(row.employee_name)} auszahlen?</h2></div><button type="button" class="icon-button" data-close-modal>×</button></div><p class="muted">Offenes Trinkgeld: <strong>${fmtCurrency(row.openTips)}</strong>. Nach der Bestätigung startet die offene Trinkgeldsumme für diesen Mitarbeiter wieder bei 0, die Bestellhistorie bleibt erhalten.</p><div class="dialog-footer"><button type="button" class="button button--secondary" data-close-modal>Abbrechen</button><button type="button" id="payOutTips" class="button button--primary">Auszahlen und resetten</button></div>`, {
+      className:'dialog-card--small',
+      onOpen: () => {
+        $('#payOutTips').addEventListener('click', async event => {
+          await withLoading(event.currentTarget, async () => {
+            await repository.payOutTips(row, row.openTips);
+            await reloadData();
+            closeModal();
+            renderPage();
+            toast('Trinkgeld wurde als ausgezahlt markiert.', 'success');
+          });
+        });
+      }
+    });
   }
 
   function startClock() {
